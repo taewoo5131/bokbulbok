@@ -1,4 +1,4 @@
-export type WeaponId = 'dagger' | 'bow' | 'bomb' | 'laser' | 'hammer' | 'shotgun';
+export type WeaponId = 'dagger' | 'bow' | 'bomb' | 'laser' | 'hammer' | 'shotgun' | 'meteor';
 export type Mode = 'winner' | 'loser';
 
 export interface Ball {
@@ -19,6 +19,19 @@ export interface Ball {
   flash: number;
   /** 서든데스 벽 피해 쿨다운 */
   wallCd: number;
+  /** 꼴찌 각성 상태: HP +3, 크기 ×1.3, 이후 모든 공격 피해 ×2 */
+  awakened: boolean;
+}
+
+/** 운석 낙하 예고 지점. timer가 0이 되면 범위 안 모든 원(시전자 포함)에 피해 */
+export interface MeteorStrike {
+  x: number;
+  y: number;
+  radius: number;
+  timer: number;
+  total: number;
+  owner: number;
+  damage: number;
 }
 
 export type ItemKind = WeaponId | 'heal';
@@ -54,7 +67,9 @@ export type Effect =
   | (EffectBase & { kind: 'text'; x: number; y: number; text: string })
   | (EffectBase & { kind: 'ring'; x: number; y: number; radius: number })
   | (EffectBase & { kind: 'beam'; x1: number; y1: number; x2: number; y2: number })
-  | (EffectBase & { kind: 'arc'; x: number; y: number; angle: number; radius: number; spread: number });
+  | (EffectBase & { kind: 'arc'; x: number; y: number; angle: number; radius: number; spread: number })
+  /** 화면 중앙에 크게 뜨는 알림 문구 */
+  | (EffectBase & { kind: 'banner'; text: string });
 
 export interface GameResult {
   mode: Mode;

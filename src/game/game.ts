@@ -1,7 +1,7 @@
 import { collideArena, collideBalls, rayToCircleEdge } from './physics';
 import { mulberry32, type Rng } from './rng';
-import type { Ball, Effect, GameResult, Item, Mode, Projectile, WeaponId } from './types';
-import { HEAL, WEAPONS, pickWeapon } from './weapons';
+import type { Ball, Effect, GameResult, Item, MeteorStrike, Mode, Projectile, WeaponId } from './types';
+import { HEAL, METEOR, WEAPONS, pickWeapon } from './weapons';
 
 export const ARENA_R = 300;
 export const MAX_HP = 10;
@@ -12,6 +12,12 @@ const SHRINK_DURATION = 25;
 const MIN_ARENA_RATIO = 0.38;
 const TIME_LIMIT = 120;
 const BASE_SPEED = 110;
+/** 꼴찌 각성: 생존자가 이 수 이하이고, 최하위 체력이 AWAKEN_HP 이하일 때 발동 */
+const AWAKEN_ALIVE = 3;
+const AWAKEN_HP = 5;
+const AWAKEN_SIZE = 1.3;
+const AWAKEN_DAMAGE = 2;
+const AWAKEN_HEAL = 3;
 const TAU = Math.PI * 2;
 
 export const BALL_COLORS = [
@@ -28,6 +34,9 @@ export class Game {
   items: Item[] = [];
   projectiles: Projectile[] = [];
   effects: Effect[] = [];
+  meteors: MeteorStrike[] = [];
+  /** 화면 흔들림 세기 (렌더 전용, 시간이 지나면 0으로) */
+  shake = 0;
   time = 0;
   arenaR = ARENA_R;
   result: GameResult | null = null;
@@ -36,6 +45,8 @@ export class Game {
   private spawnTimer = 0.8;
   private itemSeq = 0;
   private eliminated: Ball[] = [];
+  private meteorsSpawned = 0;
+  private awakeningDone = false;
 
   constructor(
     readonly names: string[],
@@ -62,7 +73,7 @@ export class Game {
       this.balls.push({
         id, name, color: BALL_COLORS[id % BALL_COLORS.length], x, y,
         vx: Math.cos(va) * BASE_SPEED, vy: Math.sin(va) * BASE_SPEED,
-        r, hp: MAX_HP, alive: true, weapon: null, charge: 0, flash: 0, wallCd: 0,
+        r, hp: MAX_HP, alive: true, weapon: null, charge: 0, flash: 0, wallCd: 0, awakened: false,
       });
     });
   }
@@ -82,6 +93,7 @@ export class Game {
   /** 고정 타임스텝 한 번 */
   step(dt: number): void {
     this.updateEffects(dt);
+    this.shake = Math.max(0, this.shake - dt * 30);
     if (this.finished) return;
 
     this.time += dt;
@@ -93,7 +105,9 @@ export class Game {
     this.updateSpawns(dt);
     this.updateBalls(dt);
     this.updateProjectiles(dt);
+    this.updateMeteors(dt);
     this.processDeaths();
+    this.checkAwakening();
     this.checkEnd();
   }
 
@@ -114,11 +128,13 @@ export class Game {
     const d = Math.sqrt(this.rng()) * (this.arenaR - ITEM_R - 12);
     const healsOnField = this.items.filter((it) => it.kind === 'heal').length;
     const heal = this.rng() < HEAL.chance && healsOnField < HEAL.maxOnField;
+    const kind = heal ? 'heal' : pickWeapon(this.rng, this.meteorsSpawned >= METEOR.maxPerGame ? ['meteor'] : []);
+    if (kind === 'meteor') this.meteorsSpawned++;
     this.items.push({
       id: this.itemSeq++,
       x: Math.cos(ang) * d,
       y: Math.sin(ang) * d,
-      kind: heal ? 'heal' : pickWeapon(this.rng),
+      kind,
       age: 0,
     });
   }
@@ -190,6 +206,7 @@ export class Game {
         b.weapon = it.kind;
         b.charge = 0;
         this.addText(b.x, b.y - b.r - 18, WEAPONS[it.kind].name, WEAPONS[it.kind].color);
+        if (it.kind === 'meteor') this.banner(`☄️ ${b.name} 운석 소환!`, WEAPONS.meteor.color);
       }
     }
   }
@@ -200,16 +217,17 @@ export class Game {
    * 발사 순간 살아있는 상대 중 한 명을 무작위로 골라 그 좌표를 향한 각도.
    * 유도가 아니라 이 순간의 위치로 쏘기 때문에 상대가 움직이면 빗나갈 수 있음.
    */
-  private aimAngle(b: Ball): number {
+  private pickTarget(b: Ball): Ball | null {
     const targets = this.alive.filter((o) => o.id !== b.id);
-    if (targets.length === 0) return this.rng() * TAU;
-    const t = targets[Math.floor(this.rng() * targets.length)];
-    return Math.atan2(t.y - b.y, t.x - b.x);
+    if (targets.length === 0) return null;
+    return targets[Math.floor(this.rng() * targets.length)];
   }
 
   private fire(b: Ball, weapon: WeaponId): void {
     const def = WEAPONS[weapon];
-    const angle = this.aimAngle(b);
+    const dmg = def.damage * (b.awakened ? AWAKEN_DAMAGE : 1);
+    const target = this.pickTarget(b);
+    const angle = target ? Math.atan2(target.y - b.y, target.x - b.x) : this.rng() * TAU;
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
     const spawn = (ang: number, speed: number, r: number, life: number) => {
@@ -218,7 +236,7 @@ export class Game {
         y: b.y + Math.sin(ang) * (b.r + r),
         vx: Math.cos(ang) * speed,
         vy: Math.sin(ang) * speed,
-        r, owner: b.id, weapon, damage: def.damage, life, hit: new Set(),
+        r, owner: b.id, weapon, damage: dmg, life, hit: new Set(),
       });
     };
 
@@ -244,7 +262,7 @@ export class Game {
           const along = ox * dx + oy * dy;
           if (along < 0 || along > len + o.r) continue;
           const perp = Math.abs(ox * dy - oy * dx);
-          if (perp < o.r + 4) this.damage(o, def.damage, def.color);
+          if (perp < o.r + 4) this.damage(o, dmg, def.color);
         }
         this.effects.push({ kind: 'beam', x1: b.x, y1: b.y, x2: b.x + dx * len, y2: b.y + dy * len, color: def.color, t: 0, life: 0.35 });
         break;
@@ -261,14 +279,57 @@ export class Game {
           let diff = Math.atan2(oy, ox) - angle;
           diff = Math.atan2(Math.sin(diff), Math.cos(diff));
           if (Math.abs(diff) > spread) continue;
-          this.damage(o, def.damage, def.color);
+          this.damage(o, dmg, def.color);
           o.vx += (ox / d) * 340;
           o.vy += (oy / d) * 340;
         }
         this.effects.push({ kind: 'arc', x: b.x, y: b.y, angle, radius: range, spread, color: def.color, t: 0, life: 0.3 });
         break;
       }
+      case 'meteor': {
+        // 발사 순간 상대의 좌표에 낙하 예고. 상대가 피하면 빗나감
+        const tx = target ? target.x : b.x;
+        const ty = target ? target.y : b.y;
+        this.meteors.push({ x: tx, y: ty, radius: METEOR.radius, timer: METEOR.delay, total: METEOR.delay, owner: b.id, damage: dmg });
+        break;
+      }
     }
+  }
+
+  private updateMeteors(dt: number): void {
+    this.meteors = this.meteors.filter((m) => {
+      m.timer -= dt;
+      if (m.timer > 0) return true;
+      // 시전자 포함 범위 안 모든 원에 피해
+      for (const b of this.alive) {
+        if (Math.hypot(b.x - m.x, b.y - m.y) - b.r < m.radius) this.damage(b, m.damage, WEAPONS.meteor.color);
+      }
+      this.effects.push({ kind: 'ring', x: m.x, y: m.y, radius: m.radius * 1.3, color: WEAPONS.meteor.color, t: 0, life: 0.7 });
+      this.effects.push({ kind: 'ring', x: m.x, y: m.y, radius: m.radius * 0.7, color: '#fde047', t: 0, life: 0.5 });
+      this.shake = 14;
+      return false;
+    });
+  }
+
+  // ───────────────────────── 꼴찌 각성 ─────────────────────────
+
+  private checkAwakening(): void {
+    if (this.awakeningDone) return;
+    const alive = this.alive;
+    if (alive.length < 2 || alive.length > AWAKEN_ALIVE) return;
+    const minHp = Math.min(...alive.map((b) => b.hp));
+    const maxHp = Math.max(...alive.map((b) => b.hp));
+    if (minHp > AWAKEN_HP || minHp >= maxHp) return;
+
+    const lowest = alive.filter((b) => b.hp === minHp);
+    const b = lowest[Math.floor(this.rng() * lowest.length)];
+    this.awakeningDone = true;
+    b.awakened = true;
+    b.r *= AWAKEN_SIZE;
+    b.hp = Math.min(MAX_HP, b.hp + AWAKEN_HEAL);
+    this.addText(b.x, b.y - b.r - 18, `+${AWAKEN_HEAL}`, '#4ade80');
+    this.banner(`🩸 ${b.name} 각성!`, '#fbbf24');
+    this.effects.push({ kind: 'ring', x: b.x, y: b.y, radius: b.r * 2.5, color: '#fbbf24', t: 0, life: 0.8 });
   }
 
   private updateProjectiles(dt: number): void {
@@ -345,6 +406,10 @@ export class Game {
     ];
     const picked = this.mode === 'winner' ? ranking[0] : ranking[ranking.length - 1];
     this.result = { mode: this.mode, picked, ranking };
+  }
+
+  private banner(text: string, color: string): void {
+    this.effects.push({ kind: 'banner', text, color, t: 0, life: 1.8 });
   }
 
   private addText(x: number, y: number, text: string, color: string, life = 0.8): void {

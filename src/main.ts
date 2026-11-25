@@ -244,7 +244,7 @@ function updateHud(): void {
     row.bar.style.width = `${ratio * 100}%`;
     row.bar.style.background = ratio > 0.5 ? '#22c55e' : ratio > 0.25 ? '#eab308' : '#ef4444';
     row.li.classList.toggle('dead', !b.alive);
-    const w = b.weapon ? WEAPONS[b.weapon].emoji : '';
+    const w = (b.awakened ? '🔥' : '') + (b.weapon ? WEAPONS[b.weapon].emoji : '');
     if (row.weapon.textContent !== w) row.weapon.textContent = w;
   });
 }

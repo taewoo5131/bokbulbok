@@ -1,5 +1,5 @@
 import { ARENA_R, CHARGE_TIME, ITEM_R, MAX_HP, type Game } from '../game/game';
-import type { Ball, Effect, ItemKind, Projectile } from '../game/types';
+import type { Ball, Effect, ItemKind, MeteorStrike, Projectile } from '../game/types';
 import { WEAPONS, itemVisual } from '../game/weapons';
 
 const TAU = Math.PI * 2;
@@ -33,16 +33,106 @@ export class Renderer {
     const scale = (this.size * this.dpr) / (2 * (ARENA_R + MARGIN));
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.setTransform(scale, 0, 0, scale, this.canvas.width / 2, this.canvas.height / 2);
+    // 화면 흔들림은 연출 전용이라 Math.random 사용 (경기 결과에 영향 없음)
+    const sx = (Math.random() - 0.5) * game.shake * scale;
+    const sy = (Math.random() - 0.5) * game.shake * scale;
+    ctx.setTransform(scale, 0, 0, scale, this.canvas.width / 2 + sx, this.canvas.height / 2 + sy);
 
     this.drawArena(game);
+    if (game.meteors.length > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, 0, game.arenaR, 0, TAU);
+      ctx.clip();
+      for (const m of game.meteors) this.drawMeteorZone(m);
+      ctx.restore();
+    }
     for (const it of game.items) this.drawItem(it.x, it.y, it.age, it.kind);
     for (const p of game.projectiles) this.drawProjectile(p);
     for (const b of game.balls) if (b.alive) this.drawBall(b, game);
-    for (const e of game.effects) this.drawEffect(e);
+    for (const m of game.meteors) this.drawFallingMeteor(m);
+    for (const e of game.effects) if (e.kind !== 'banner') this.drawEffect(e);
+    for (const e of game.effects) if (e.kind === 'banner') this.drawBanner(e.text, e.color, e.t / e.life);
+  }
+
+  /** 운석 낙하 예고: 어두운 경기장 + 빨간 점선 원 + 시간에 따라 차오르는 안쪽 */
+  private drawMeteorZone(m: MeteorStrike): void {
+    const { ctx } = this;
+    const k = 1 - m.timer / m.total;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius * k, 0, TAU);
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.28)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.radius, 0, TAU);
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+    ctx.fill();
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -k * 60;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(239, 68, 68, ${0.6 + 0.4 * Math.sin(k * 40)})`;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  private drawFallingMeteor(m: MeteorStrike): void {
+    const k = 1 - m.timer / m.total;
+    const ease = k * k;
+    const x = m.x + (1 - ease) * 40;
+    const y = m.y - (1 - ease) * 90;
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, k * 3);
+    // 꼬리
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 20 + 25 * (1 - ease), y - 48 - 60 * (1 - ease));
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 10 + 14 * k;
+    ctx.strokeStyle = 'rgba(251, 146, 60, 0.45)';
+    ctx.stroke();
+    this.emoji('☄️', x, y, 22 + 34 * k);
+    ctx.restore();
+  }
+
+  private drawBanner(text: string, color: string, k: number): void {
+    const { ctx } = this;
+    const appear = Math.min(1, k * 8);
+    const alpha = k > 0.75 ? (1 - k) / 0.25 : 1;
+    const y = -ARENA_R * 0.62;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(0, y);
+    ctx.scale(0.6 + 0.4 * appear, 0.6 + 0.4 * appear);
+    ctx.font = '900 34px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width;
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+    ctx.beginPath();
+    ctx.roundRect(-w / 2 - 18, -28, w + 36, 56, 14);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(text, 0, 2);
+    ctx.restore();
   }
 
   private drawArena(game: Game): void {
+    const { ctx } = this;
+    this.drawArenaBase(game);
+    // 운석 대기 중엔 경기장을 살짝 어둡게
+    if (game.meteors.length > 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, game.arenaR, 0, TAU);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fill();
+    }
+  }
+
+  private drawArenaBase(game: Game): void {
     const { ctx } = this;
     if (game.suddenDeath) {
       ctx.beginPath();
@@ -124,6 +214,20 @@ export class Renderer {
 
   private drawBall(b: Ball, game: Game): void {
     const { ctx } = this;
+
+    if (b.awakened) {
+      const pulse = 0.5 + 0.5 * Math.sin(game.time * 10);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r + 6 + pulse * 4, 0, TAU);
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.18 + pulse * 0.15})`;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 18;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r, 0, TAU);
