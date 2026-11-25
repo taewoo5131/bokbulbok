@@ -47,7 +47,8 @@ npm run build    # dist/ 에 정적 파일 생성
 | `contact.html` | 문의 |
 | `privacy.html` | 개인정보처리방침 |
 
-- 새 페이지를 추가하면 `vite.config.ts`의 `input`에도 등록해야 빌드에 포함됩니다.
+- 새 페이지를 추가하면 `vite.config.ts`의 `input`과 `cleanUrls`, `public/sitemap.xml`에도 등록해야 합니다. 내부 링크는 `/race`처럼 `.html` 없이 씁니다.
+- 검색 노출: `public/robots.txt`, `public/sitemap.xml`, 각 페이지의 제목·설명·구조화 데이터(JSON-LD)
 - 문의 이메일은 `vite.config.ts`의 `CONTACT_EMAIL` 한 곳에서 관리합니다 (비우면 "준비 중" 표시).
 
 ## 배포 (Cloudflare)

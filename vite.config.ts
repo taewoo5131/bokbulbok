@@ -7,6 +7,21 @@ import { defineConfig, type Plugin } from 'vite';
  */
 const CONTACT_EMAIL = '';
 
+/** 개발 서버에서도 배포와 같은 깔끔한 주소(/race, /about …)가 열리게 */
+function cleanUrls(): Plugin {
+  const pages = new Set(['/race', '/about', '/contact', '/privacy']);
+  return {
+    name: 'clean-urls',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const [path, query] = (req.url ?? '').split('?');
+        if (pages.has(path)) req.url = `${path}.html${query ? `?${query}` : ''}`;
+        next();
+      });
+    },
+  };
+}
+
 function contactEmail(): Plugin {
   const html = CONTACT_EMAIL
     ? `<a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>`
@@ -20,7 +35,7 @@ function contactEmail(): Plugin {
 const page = (name: string) => resolve(import.meta.dirname, `${name}.html`);
 
 export default defineConfig({
-  plugins: [contactEmail()],
+  plugins: [contactEmail(), cleanUrls()],
   build: {
     rollupOptions: {
       // 여러 페이지를 함께 빌드
