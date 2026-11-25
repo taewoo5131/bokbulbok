@@ -1,7 +1,7 @@
 import { collideArena, collideBalls, rayToCircleEdge } from './physics';
 import { mulberry32, type Rng } from './rng';
-import type { Ball, Effect, GameResult, Item, MeteorStrike, Mode, Projectile, WeaponId } from './types';
-import { HEAL, METEOR, WEAPONS, pickWeapon } from './weapons';
+import type { Ball, Decoy, Effect, GameResult, Item, ItemKind, MeteorStrike, Mode, Projectile, WeaponId } from './types';
+import { DECOY, HEAL, METEOR, WEAPONS, pickWeapon } from './weapons';
 
 export const ARENA_R = 300;
 export const MAX_HP = 10;
@@ -12,12 +12,6 @@ const SHRINK_DURATION = 25;
 const MIN_ARENA_RATIO = 0.38;
 const TIME_LIMIT = 120;
 const BASE_SPEED = 110;
-/** 꼴찌 각성: 생존자가 이 수 이하이고, 최하위 체력이 AWAKEN_HP 이하일 때 발동 */
-const AWAKEN_ALIVE = 3;
-const AWAKEN_HP = 5;
-const AWAKEN_SIZE = 1.3;
-const AWAKEN_DAMAGE = 2;
-const AWAKEN_HEAL = 3;
 const TAU = Math.PI * 2;
 
 export const BALL_COLORS = [
@@ -35,6 +29,7 @@ export class Game {
   projectiles: Projectile[] = [];
   effects: Effect[] = [];
   meteors: MeteorStrike[] = [];
+  decoys: Decoy[] = [];
   /** 화면 흔들림 세기 (렌더 전용, 시간이 지나면 0으로) */
   shake = 0;
   time = 0;
@@ -46,7 +41,7 @@ export class Game {
   private itemSeq = 0;
   private eliminated: Ball[] = [];
   private meteorsSpawned = 0;
-  private awakeningDone = false;
+  private decoySeq = 0;
 
   constructor(
     readonly names: string[],
@@ -73,7 +68,7 @@ export class Game {
       this.balls.push({
         id, name, color: BALL_COLORS[id % BALL_COLORS.length], x, y,
         vx: Math.cos(va) * BASE_SPEED, vy: Math.sin(va) * BASE_SPEED,
-        r, hp: MAX_HP, alive: true, weapon: null, charge: 0, flash: 0, wallCd: 0, awakened: false,
+        r, hp: MAX_HP, alive: true, weapon: null, charge: 0, flash: 0, wallCd: 0,
       });
     });
   }
@@ -104,10 +99,10 @@ export class Game {
 
     this.updateSpawns(dt);
     this.updateBalls(dt);
+    this.updateDecoys(dt);
     this.updateProjectiles(dt);
     this.updateMeteors(dt);
     this.processDeaths();
-    this.checkAwakening();
     this.checkEnd();
   }
 
@@ -126,10 +121,17 @@ export class Game {
 
     const ang = this.rng() * TAU;
     const d = Math.sqrt(this.rng()) * (this.arenaR - ITEM_R - 12);
-    const healsOnField = this.items.filter((it) => it.kind === 'heal').length;
-    const heal = this.rng() < HEAL.chance && healsOnField < HEAL.maxOnField;
-    const kind = heal ? 'heal' : pickWeapon(this.rng, this.meteorsSpawned >= METEOR.maxPerGame ? ['meteor'] : []);
-    if (kind === 'meteor') this.meteorsSpawned++;
+    const onField = (k: ItemKind) => this.items.filter((it) => it.kind === k).length;
+    const roll = this.rng();
+    let kind: ItemKind;
+    if (roll < HEAL.chance && onField('heal') < HEAL.maxOnField) {
+      kind = 'heal';
+    } else if (roll >= HEAL.chance && roll < HEAL.chance + DECOY.chance && onField('decoy') < DECOY.maxOnField) {
+      kind = 'decoy';
+    } else {
+      kind = pickWeapon(this.rng, this.meteorsSpawned >= METEOR.maxPerGame ? ['meteor'] : []);
+      if (kind === 'meteor') this.meteorsSpawned++;
+    }
     this.items.push({
       id: this.itemSeq++,
       x: Math.cos(ang) * d,
@@ -190,6 +192,15 @@ export class Game {
         }
       }
 
+      // 환각: 즉시 분신 생성 (이미 분신이 있으면 줍지 않음)
+      if (!this.decoys.some((d) => d.owner === b.id)) {
+        const di = this.items.findIndex((it) => it.kind === 'decoy' && touching(b, it));
+        if (di >= 0) {
+          this.items.splice(di, 1);
+          this.spawnDecoys(b);
+        }
+      }
+
       if (b.weapon) {
         b.charge += dt;
         if (b.charge >= CHARGE_TIME) {
@@ -199,10 +210,10 @@ export class Game {
         }
         continue;
       }
-      const wi = this.items.findIndex((it) => it.kind !== 'heal' && touching(b, it));
+      const wi = this.items.findIndex((it) => it.kind !== 'heal' && it.kind !== 'decoy' && touching(b, it));
       if (wi >= 0) {
         const [it] = this.items.splice(wi, 1);
-        if (it.kind === 'heal') continue;
+        if (it.kind === 'heal' || it.kind === 'decoy') continue;
         b.weapon = it.kind;
         b.charge = 0;
         this.addText(b.x, b.y - b.r - 18, WEAPONS[it.kind].name, WEAPONS[it.kind].color);
@@ -217,15 +228,62 @@ export class Game {
    * 발사 순간 살아있는 상대 중 한 명을 무작위로 골라 그 좌표를 향한 각도.
    * 유도가 아니라 이 순간의 위치로 쏘기 때문에 상대가 움직이면 빗나갈 수 있음.
    */
-  private pickTarget(b: Ball): Ball | null {
-    const targets = this.alive.filter((o) => o.id !== b.id);
+  /** 발사 대상: 살아있는 상대 + 다른 원의 분신 중 무작위 1개 (분신을 고르면 헛방) */
+  private pickTarget(b: Ball): { x: number; y: number } | null {
+    const targets: { x: number; y: number }[] = [
+      ...this.alive.filter((o) => o.id !== b.id),
+      ...this.decoys.filter((d) => d.owner !== b.id && d.life > 0),
+    ];
     if (targets.length === 0) return null;
     return targets[Math.floor(this.rng() * targets.length)];
   }
 
+  // ───────────────────────── 환각(분신) ─────────────────────────
+
+  private spawnDecoys(b: Ball): void {
+    const base = Math.atan2(b.vy, b.vx);
+    for (let i = 0; i < DECOY.count; i++) {
+      const a = base + ((i + 1) * TAU) / (DECOY.count + 1);
+      this.decoys.push({
+        id: this.decoySeq++, owner: b.id,
+        x: b.x + Math.cos(a) * b.r * 0.5, y: b.y + Math.sin(a) * b.r * 0.5,
+        vx: Math.cos(a) * BASE_SPEED, vy: Math.sin(a) * BASE_SPEED,
+        r: b.r, life: DECOY.duration,
+      });
+    }
+    this.banner(`👥 ${b.name} 분신술!`, DECOY.color);
+    this.effects.push({ kind: 'ring', x: b.x, y: b.y, radius: b.r * 2.4, color: DECOY.color, t: 0, life: 0.5 });
+  }
+
+  private updateDecoys(dt: number): void {
+    for (const d of this.decoys) {
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      collideArena(d, this.arenaR);
+      d.life -= dt;
+    }
+    this.decoys = this.decoys.filter((d) => {
+      if (d.life > 0 && this.balls[d.owner].alive) return true;
+      if (d.life > -1) this.effects.push({ kind: 'ring', x: d.x, y: d.y, radius: d.r * 1.4, color: DECOY.color, t: 0, life: 0.3 });
+      return false;
+    });
+  }
+
+  /** 공격에 맞은 분신 제거 (같은 프레임의 다른 공격은 무시하도록 life를 -1로) */
+  private popDecoy(d: Decoy): void {
+    if (d.life <= 0) return;
+    d.life = -1;
+    this.addText(d.x, d.y - d.r, '💨 가짜!', DECOY.color);
+    this.effects.push({ kind: 'ring', x: d.x, y: d.y, radius: d.r * 1.8, color: DECOY.color, t: 0, life: 0.4 });
+  }
+
+  private liveDecoysExcept(owner: number): Decoy[] {
+    return this.decoys.filter((d) => d.life > 0 && d.owner !== owner);
+  }
+
   private fire(b: Ball, weapon: WeaponId): void {
     const def = WEAPONS[weapon];
-    const dmg = def.damage * (b.awakened ? AWAKEN_DAMAGE : 1);
+    const dmg = def.damage;
     const target = this.pickTarget(b);
     const angle = target ? Math.atan2(target.y - b.y, target.x - b.x) : this.rng() * TAU;
     const dx = Math.cos(angle);
@@ -264,6 +322,12 @@ export class Game {
           const perp = Math.abs(ox * dy - oy * dx);
           if (perp < o.r + 4) this.damage(o, dmg, def.color);
         }
+        for (const d of this.liveDecoysExcept(b.id)) {
+          const ox = d.x - b.x;
+          const oy = d.y - b.y;
+          const along = ox * dx + oy * dy;
+          if (along >= 0 && along <= len + d.r && Math.abs(ox * dy - oy * dx) < d.r + 4) this.popDecoy(d);
+        }
         this.effects.push({ kind: 'beam', x1: b.x, y1: b.y, x2: b.x + dx * len, y2: b.y + dy * len, color: def.color, t: 0, life: 0.35 });
         break;
       }
@@ -282,6 +346,14 @@ export class Game {
           this.damage(o, dmg, def.color);
           o.vx += (ox / d) * 340;
           o.vy += (oy / d) * 340;
+        }
+        for (const d of this.liveDecoysExcept(b.id)) {
+          const ox = d.x - b.x;
+          const oy = d.y - b.y;
+          if (Math.hypot(ox, oy) - d.r > range) continue;
+          let diff = Math.atan2(oy, ox) - angle;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          if (Math.abs(diff) <= spread) this.popDecoy(d);
         }
         this.effects.push({ kind: 'arc', x: b.x, y: b.y, angle, radius: range, spread, color: def.color, t: 0, life: 0.3 });
         break;
@@ -304,6 +376,9 @@ export class Game {
       for (const b of this.alive) {
         if (Math.hypot(b.x - m.x, b.y - m.y) - b.r < m.radius) this.damage(b, m.damage, WEAPONS.meteor.color);
       }
+      for (const d of this.liveDecoysExcept(-1)) {
+        if (Math.hypot(d.x - m.x, d.y - m.y) - d.r < m.radius) this.popDecoy(d);
+      }
       this.effects.push({ kind: 'ring', x: m.x, y: m.y, radius: m.radius * 1.3, color: WEAPONS.meteor.color, t: 0, life: 0.7 });
       this.effects.push({ kind: 'ring', x: m.x, y: m.y, radius: m.radius * 0.7, color: '#fde047', t: 0, life: 0.5 });
       this.shake = 14;
@@ -311,26 +386,6 @@ export class Game {
     });
   }
 
-  // ───────────────────────── 꼴찌 각성 ─────────────────────────
-
-  private checkAwakening(): void {
-    if (this.awakeningDone) return;
-    const alive = this.alive;
-    if (alive.length < 2 || alive.length > AWAKEN_ALIVE) return;
-    const minHp = Math.min(...alive.map((b) => b.hp));
-    const maxHp = Math.max(...alive.map((b) => b.hp));
-    if (minHp > AWAKEN_HP || minHp >= maxHp) return;
-
-    const lowest = alive.filter((b) => b.hp === minHp);
-    const b = lowest[Math.floor(this.rng() * lowest.length)];
-    this.awakeningDone = true;
-    b.awakened = true;
-    b.r *= AWAKEN_SIZE;
-    b.hp = Math.min(MAX_HP, b.hp + AWAKEN_HEAL);
-    this.addText(b.x, b.y - b.r - 18, `+${AWAKEN_HEAL}`, '#4ade80');
-    this.banner(`🩸 ${b.name} 각성!`, '#fbbf24');
-    this.effects.push({ kind: 'ring', x: b.x, y: b.y, radius: b.r * 2.5, color: '#fbbf24', t: 0, life: 0.8 });
-  }
 
   private updateProjectiles(dt: number): void {
     const alive = this.alive;
@@ -351,6 +406,13 @@ export class Game {
         return false;
       }
 
+      for (const d of this.liveDecoysExcept(p.owner)) {
+        if (Math.hypot(d.x - p.x, d.y - p.y) >= d.r + p.r) continue;
+        if (p.weapon === 'bomb') this.explode(p);
+        else this.popDecoy(d);
+        return false;
+      }
+
       if (Math.hypot(p.x, p.y) > this.arenaR - p.r || p.life <= 0) {
         if (p.weapon === 'bomb') this.explode(p);
         return false;
@@ -364,6 +426,9 @@ export class Game {
     for (const b of this.alive) {
       if (b.id === p.owner) continue;
       if (Math.hypot(b.x - p.x, b.y - p.y) - b.r < radius) this.damage(b, p.damage, WEAPONS.bomb.color);
+    }
+    for (const d of this.liveDecoysExcept(p.owner)) {
+      if (Math.hypot(d.x - p.x, d.y - p.y) - d.r < radius) this.popDecoy(d);
     }
     this.effects.push({ kind: 'ring', x: p.x, y: p.y, radius, color: WEAPONS.bomb.color, t: 0, life: 0.45 });
   }

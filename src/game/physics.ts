@@ -29,8 +29,10 @@ export function collideBalls(a: Ball, b: Ball): void {
   }
 }
 
-/** 원형 경기장 벽 반사. 벽에 닿았으면 true */
-export function collideArena(b: Ball, arenaR: number): boolean {
+/** 위치·속도·반지름만 있으면 되는 경기장 벽 반사 (원, 분신 공용) */
+type Body = Pick<Ball, 'x' | 'y' | 'vx' | 'vy' | 'r'>;
+
+export function collideArena(b: Body, arenaR: number): boolean {
   const d = Math.hypot(b.x, b.y);
   const limit = arenaR - b.r;
   if (d <= limit || d === 0) return false;

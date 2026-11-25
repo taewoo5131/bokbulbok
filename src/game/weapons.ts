@@ -47,8 +47,25 @@ export const HEAL = {
   desc: '닿으면 즉시 체력 3 회복 (최대 10)',
 };
 
+/** 환각 아이템: 닿는 즉시 본체와 똑같은 분신 생성. 상대가 분신을 노리면 헛방 */
+export const DECOY = {
+  name: '환각',
+  emoji: '👥',
+  color: '#c084fc',
+  /** 회복이 아닐 때 환각이 나올 확률 */
+  chance: 0.1,
+  maxOnField: 1,
+  /** 한 번에 생기는 분신 수 */
+  count: 2,
+  /** 분신 지속 시간(초) */
+  duration: 5,
+  desc: '닿으면 가짜 분신 2개가 5초간 생김. 상대가 분신을 노리면 헛방',
+};
+
 export function itemVisual(kind: ItemKind): { emoji: string; color: string; name: string } {
-  return kind === 'heal' ? HEAL : WEAPONS[kind];
+  if (kind === 'heal') return HEAL;
+  if (kind === 'decoy') return DECOY;
+  return WEAPONS[kind];
 }
 
 export function pickWeapon(rng: Rng, exclude: WeaponId[] = []): WeaponId {

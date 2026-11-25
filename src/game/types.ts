@@ -19,8 +19,6 @@ export interface Ball {
   flash: number;
   /** 서든데스 벽 피해 쿨다운 */
   wallCd: number;
-  /** 꼴찌 각성 상태: HP +3, 크기 ×1.3, 이후 모든 공격 피해 ×2 */
-  awakened: boolean;
 }
 
 /** 운석 낙하 예고 지점. timer가 0이 되면 범위 안 모든 원(시전자 포함)에 피해 */
@@ -34,7 +32,19 @@ export interface MeteorStrike {
   damage: number;
 }
 
-export type ItemKind = WeaponId | 'heal';
+export type ItemKind = WeaponId | 'heal' | 'decoy';
+
+/** 환각 아이템으로 생긴 가짜 분신. 공격에 닿으면 사라짐 */
+export interface Decoy {
+  id: number;
+  owner: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  life: number;
+}
 
 export interface Item {
   id: number;

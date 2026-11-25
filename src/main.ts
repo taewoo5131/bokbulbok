@@ -2,7 +2,7 @@ import './style.css';
 import { BALL_COLORS, Game, MAX_HP, SUDDEN_AT } from './game/game';
 import { randomSeed } from './game/rng';
 import type { Mode } from './game/types';
-import { HEAL, WEAPONS, WEAPON_LIST } from './game/weapons';
+import { DECOY, HEAL, WEAPONS, WEAPON_LIST } from './game/weapons';
 import { Renderer } from './render/canvas';
 
 const MIN_ITEMS = 2;
@@ -157,6 +157,9 @@ el.weaponList.replaceChildren(
   Object.assign(document.createElement('li'), {
     innerHTML: `${HEAL.emoji} <b>${HEAL.name}</b> · +${HEAL.amount} — ${HEAL.desc}`,
   }),
+  Object.assign(document.createElement('li'), {
+    innerHTML: `${DECOY.emoji} <b>${DECOY.name}</b> — ${DECOY.desc}`,
+  }),
 );
 
 // ───────────────────────── 경기 ─────────────────────────
@@ -244,7 +247,7 @@ function updateHud(): void {
     row.bar.style.width = `${ratio * 100}%`;
     row.bar.style.background = ratio > 0.5 ? '#22c55e' : ratio > 0.25 ? '#eab308' : '#ef4444';
     row.li.classList.toggle('dead', !b.alive);
-    const w = (b.awakened ? '🔥' : '') + (b.weapon ? WEAPONS[b.weapon].emoji : '');
+    const w = b.weapon ? WEAPONS[b.weapon].emoji : '';
     if (row.weapon.textContent !== w) row.weapon.textContent = w;
   });
 }

@@ -1,5 +1,5 @@
 import { ARENA_R, CHARGE_TIME, ITEM_R, MAX_HP, type Game } from '../game/game';
-import type { Ball, Effect, ItemKind, MeteorStrike, Projectile } from '../game/types';
+import type { Ball, Decoy, Effect, ItemKind, MeteorStrike, Projectile } from '../game/types';
 import { WEAPONS, itemVisual } from '../game/weapons';
 
 const TAU = Math.PI * 2;
@@ -49,6 +49,7 @@ export class Renderer {
     }
     for (const it of game.items) this.drawItem(it.x, it.y, it.age, it.kind);
     for (const p of game.projectiles) this.drawProjectile(p);
+    for (const d of game.decoys) if (d.life > 0) this.drawDecoy(d, game);
     for (const b of game.balls) if (b.alive) this.drawBall(b, game);
     for (const m of game.meteors) this.drawFallingMeteor(m);
     for (const e of game.effects) if (e.kind !== 'banner') this.drawEffect(e);
@@ -212,29 +213,15 @@ export class Renderer {
     }
   }
 
-  private drawBall(b: Ball, game: Game): void {
+  /** 원 몸체 + 이름 + HP바. 본체와 분신이 같은 모습으로 그려지도록 공용 */
+  private drawBody(x: number, y: number, r: number, color: string, name: string, hp: number, flash: number): void {
     const { ctx } = this;
-
-    if (b.awakened) {
-      const pulse = 0.5 + 0.5 * Math.sin(game.time * 10);
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r + 6 + pulse * 4, 0, TAU);
-      ctx.fillStyle = `rgba(251, 191, 36, ${0.18 + pulse * 0.15})`;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 18;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-
     ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, TAU);
-    ctx.fillStyle = b.color;
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.fillStyle = color;
     ctx.fill();
-    if (b.flash > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${b.flash / 0.15})`;
+    if (flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${flash / 0.15})`;
       ctx.fill();
     }
     ctx.lineWidth = 2;
@@ -242,29 +229,46 @@ export class Renderer {
     ctx.stroke();
 
     // 이름
-    const fontSize = Math.max(9, b.r * 0.62);
+    const fontSize = Math.max(9, r * 0.62);
     ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    let label = b.name;
-    const maxW = b.r * 1.8;
+    let label = name;
+    const maxW = r * 1.8;
     while (label.length > 1 && ctx.measureText(label).width > maxW) label = label.slice(0, -1);
-    if (label !== b.name) label = label.slice(0, -1) + '…';
+    if (label !== name) label = label.slice(0, -1) + '…';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText(label, b.x, b.y + 1);
+    ctx.strokeText(label, x, y + 1);
     ctx.fillStyle = '#fff';
-    ctx.fillText(label, b.x, b.y + 1);
+    ctx.fillText(label, x, y + 1);
 
     // HP 바
-    const w = Math.max(28, b.r * 2);
-    const hx = b.x - w / 2;
-    const hy = b.y + b.r + 5;
-    const ratio = Math.max(0, b.hp) / MAX_HP;
+    const w = Math.max(28, r * 2);
+    const hx = x - w / 2;
+    const hy = y + r + 5;
+    const ratio = Math.max(0, hp) / MAX_HP;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(hx, hy, w, 5);
     ctx.fillStyle = ratio > 0.5 ? '#22c55e' : ratio > 0.25 ? '#eab308' : '#ef4444';
     ctx.fillRect(hx, hy, w * ratio, 5);
+  }
+
+  /** 분신: 본체와 거의 같지만 살짝 투명하고 미세하게 떨림 (자세히 보면 구분 가능) */
+  private drawDecoy(d: Decoy, game: Game): void {
+    const owner = game.balls[d.owner];
+    const { ctx } = this;
+    const fade = Math.min(1, d.life / 0.4);
+    const jitter = Math.sin(game.time * 47 + d.id * 3) * 1.2;
+    ctx.save();
+    ctx.globalAlpha = 0.78 * fade;
+    this.drawBody(d.x + jitter, d.y, d.r, owner.color, owner.name, owner.hp, 0);
+    ctx.restore();
+  }
+
+  private drawBall(b: Ball, game: Game): void {
+    const { ctx } = this;
+    this.drawBody(b.x, b.y, b.r, b.color, b.name, b.hp, b.flash);
 
     // 들고 있는 무기 + 1초 충전 게이지
     if (b.weapon) {
