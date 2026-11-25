@@ -179,7 +179,48 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .result-actions .primary { grid-column: span 2; padding: 12px; }
 
-.footer { text-align: center; color: #475569; font-size: 12px; margin: 32px 0 8px; }
+/* ───── 사이트 공통: 메뉴 / 푸터 / 문서 페이지 ───── */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.brand { color: var(--text); font-weight: 800; text-decoration: none; }
+.site-nav { display: flex; gap: 4px; }
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.site-nav a:hover { color: var(--text); background: #1e293b; }
+.site-nav a[aria-current='page'] { color: var(--text); background: #1e293b; }
+
+.site-footer { text-align: center; color: #64748b; font-size: 12px; margin: 40px 0 8px; line-height: 1.8; }
+.site-footer p { margin: 0; }
+.site-footer a { color: var(--muted); text-decoration: none; }
+.site-footer a:hover { color: var(--text); text-decoration: underline; }
+
+/* 경기 중에는 메뉴와 푸터를 숨겨 경기장을 크게 */
+body.playing .site-header,
+body.playing .site-footer { display: none; }
+
+.doc { max-width: 720px; margin: 24px auto 0; line-height: 1.8; font-size: 15px; }
+.doc h1 { font-size: 28px; margin: 8px 0 4px; }
+.doc .meta { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+.doc h2 { font-size: 18px; margin: 32px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.doc p, .doc li { color: #cbd5e1; }
+.doc ul, .doc ol { padding-left: 22px; }
+.doc a { color: #fbbf24; }
+.doc table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+.doc th, .doc td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.doc th { background: var(--panel); color: var(--text); }
+.doc .cta { display: inline-block; margin-top: 8px; padding: 10px 16px; border-radius: 10px; background: var(--accent); color: #1c1917; font-weight: 800; text-decoration: none; }
 
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { transform: scale(0.85); opacity: 0; } }

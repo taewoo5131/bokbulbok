@@ -31,5 +31,16 @@ npm run build    # dist/ 에 정적 파일 생성
 | `src/render/canvas.ts` | Canvas 그리기 |
 | `src/main.ts` | 화면 전환, 입력, 결과, 공유 링크 |
 
-## 배포 (Cloudflare Pages)
+## 페이지
+| 파일 | 내용 |
+|---|---|
+| `index.html` | 게임 |
+| `about.html` | 소개 |
+| `contact.html` | 문의 |
+| `privacy.html` | 개인정보처리방침 |
+
+- 새 페이지를 추가하면 `vite.config.ts`의 `input`에도 등록해야 빌드에 포함됩니다.
+- 문의 이메일은 `vite.config.ts`의 `CONTACT_EMAIL` 한 곳에서 관리합니다 (비우면 "준비 중" 표시).
+
+## 배포 (Cloudflare)
 - Framework preset: **Vite** / Build command: `npm run build` / Output: `dist`

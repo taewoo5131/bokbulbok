@@ -176,6 +176,7 @@ function startGame(seed: number): void {
   el.result.classList.add('hidden');
   el.screenInput.classList.add('hidden');
   el.screenGame.classList.remove('hidden');
+  document.body.classList.add('playing');
   buildRoster();
   cancelAnimationFrame(rafId);
   let last = performance.now();
@@ -206,6 +207,7 @@ function stopGame(): void {
   game = null;
   el.result.classList.add('hidden');
   el.screenGame.classList.add('hidden');
+  document.body.classList.remove('playing');
   el.screenInput.classList.remove('hidden');
   history.replaceState(null, '', location.pathname);
 }
