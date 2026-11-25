@@ -21,6 +21,7 @@ npm run build    # dist/ 에 정적 파일 생성
 - 맵 크기는 인원으로 자동 결정: Small ≤16, Medium ≤50, Large ≤100 (`src/game/size.ts`). 배틀은 `BATTLE_SIZE`(game.ts), 레이스는 `TRACK_SIZE`(race/track.ts)에서 크기별 수치 조정
 - 1등 모드 = 마지막 생존자 / 꼴등 모드 = 첫 탈락자
 - 같은 `?items=...&mode=...&seed=...` 링크는 항상 같은 경기를 재생
+- 👥 같이 보기: `&start=<epoch ms>`가 붙은 링크는 각자의 시계로 시작 시각부터 지난 만큼 계산해서 모두 같은 장면을 봄 (서버 없음, `src/shell.ts`)
 
 ## 구조
 | 파일 | 역할 |

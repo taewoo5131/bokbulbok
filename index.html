@@ -61,6 +61,8 @@
 
           <p id="hint" class="hint"></p>
           <button id="start-btn" class="primary" type="button">결투 시작!</button>
+          <button id="watch-btn" class="watch-btn" type="button">👥 같이 보기 링크 만들기</button>
+          <p class="watch-hint">링크를 받은 친구들과 같은 경기를 동시에 봐요 (15초 뒤 시작)</p>
         </div>
 
         <section class="howto">
@@ -74,6 +76,7 @@
             <li>아주 드물게 ☄️ <b>운석</b>이 나타납니다. 상대 위치에 1.5초 뒤 떨어지며 범위 안의 <b>모든 원</b>(주운 원 포함)이 8 피해를 입어요.</li>
             <li>30초가 지나면 서든데스! 경기장이 줄어들고 벽에 닿으면 피해를 입습니다.</li>
             <li>1등 뽑기는 마지막 생존자, 꼴등 뽑기는 가장 먼저 탈락한 원이 뽑힙니다.</li>
+            <li><b>👥 같이 보기 링크</b>를 만들어 단톡방에 보내면, 링크를 연 사람 모두가 15초 뒤 <b>같은 경기를 동시에</b> 봐요. 늦게 들어와도 지금 장면부터 이어서 볼 수 있어요.</li>
           </ol>
           <h2>아이템 종류</h2>
           <ul id="weapon-list" class="weapons"></ul>
@@ -88,7 +91,15 @@
           <button id="speed-btn" type="button">1x</button>
         </div>
         <div class="arena-layout">
-          <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+          <div class="canvas-wrap">
+            <canvas id="canvas"></canvas>
+            <div id="countdown" class="countdown hidden">
+              <p class="countdown-label">👥 같이 보기 · 시작까지</p>
+              <p id="countdown-num" class="countdown-num"></p>
+              <p id="countdown-msg" class="countdown-msg"></p>
+              <button id="countdown-share" type="button">🔗 링크 다시 공유</button>
+            </div>
+          </div>
           <ul id="roster" class="roster"></ul>
         </div>
 
@@ -102,6 +113,7 @@
               <button id="replay-btn" type="button">⏪ 같은 경기 다시보기</button>
               <button id="share-btn" type="button">🔗 결과 링크 복사</button>
               <button id="edit-btn" type="button">✏️ 항목 수정</button>
+              <button id="watch-again-btn" class="watch-again" type="button">👥 다음 경기도 같이 보기</button>
             </div>
           </div>
         </div>

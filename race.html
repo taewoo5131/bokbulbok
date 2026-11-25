@@ -61,6 +61,8 @@
 
           <p id="hint" class="hint"></p>
           <button id="start-btn" class="primary" type="button">출발!</button>
+          <button id="watch-btn" class="watch-btn" type="button">👥 같이 보기 링크 만들기</button>
+          <p class="watch-hint">링크를 받은 친구들과 같은 경기를 동시에 봐요 (15초 뒤 시작)</p>
         </div>
 
         <section class="howto">
@@ -72,6 +74,7 @@
             <li>코스와 장애물 배치는 경기마다 새로 만들어지고, 출발 위치도 무작위로 섞여요.</li>
             <li><b>1등 뽑기</b>는 결승에 가장 먼저 도착한 원, <b>꼴등 뽑기</b>는 마지막까지 도착하지 못한 원이 뽑힙니다.</li>
             <li>화면은 1등 뽑기일 때 선두를, 꼴등 뽑기일 때 꼴찌를 따라가요. 오른쪽 위 작은 지도에서 모든 원의 위치를 볼 수 있습니다.</li>
+            <li><b>👥 같이 보기 링크</b>를 만들어 단톡방에 보내면, 링크를 연 사람 모두가 15초 뒤 <b>같은 레이스를 동시에</b> 봐요. 늦게 들어와도 지금 장면부터 이어서 볼 수 있어요.</li>
           </ol>
 
           <h2>역전 장치</h2>
@@ -112,7 +115,15 @@
           <button id="speed-btn" type="button">1x</button>
         </div>
         <div class="arena-layout">
-          <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+          <div class="canvas-wrap">
+            <canvas id="canvas"></canvas>
+            <div id="countdown" class="countdown hidden">
+              <p class="countdown-label">👥 같이 보기 · 시작까지</p>
+              <p id="countdown-num" class="countdown-num"></p>
+              <p id="countdown-msg" class="countdown-msg"></p>
+              <button id="countdown-share" type="button">🔗 링크 다시 공유</button>
+            </div>
+          </div>
           <ul id="roster" class="roster"></ul>
         </div>
 
@@ -126,6 +137,7 @@
               <button id="replay-btn" type="button">⏪ 같은 경기 다시보기</button>
               <button id="share-btn" type="button">🔗 결과 링크 복사</button>
               <button id="edit-btn" type="button">✏️ 항목 수정</button>
+              <button id="watch-again-btn" class="watch-again" type="button">👥 다음 경기도 같이 보기</button>
             </div>
           </div>
         </div>
