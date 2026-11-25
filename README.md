@@ -29,12 +29,17 @@ npm run build    # dist/ 에 정적 파일 생성
 | `src/game/physics.ts` | 원 충돌, 경기장 벽 반사 |
 | `src/game/rng.ts` | 시드 난수 |
 | `src/render/canvas.ts` | Canvas 그리기 |
-| `src/main.ts` | 화면 전환, 입력, 결과, 공유 링크 |
+| `src/shell.ts` | 게임 공통 화면: 입력, 경기 루프, 결과, 공유 링크 (각 게임은 `GameDef`만 구현) |
+| `src/main.ts` | 배틀 페이지 진입점 |
+| `src/race/race.ts` | 레이스 물리, 트랙 생성(6종 구간), 도착 판정 |
+| `src/render/race-canvas.ts` | 레이스 그리기 (따라가는 카메라, 미니맵) |
+| `src/race-main.ts` | 레이스 페이지 진입점 |
 
 ## 페이지
 | 파일 | 내용 |
 |---|---|
-| `index.html` | 게임 |
+| `index.html` | ⚔️ 배틀 |
+| `race.html` | 🏁 레이스 |
 | `about.html` | 소개 |
 | `contact.html` | 문의 |
 | `privacy.html` | 개인정보처리방침 |

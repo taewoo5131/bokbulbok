@@ -26,6 +26,7 @@ export default defineConfig({
       // 여러 페이지를 함께 빌드
       input: {
         main: page('index'),
+        race: page('race'),
         about: page('about'),
         privacy: page('privacy'),
         contact: page('contact'),

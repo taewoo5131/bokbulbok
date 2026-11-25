@@ -1,4 +1,5 @@
 import { collideArena, collideBalls, rayToCircleEdge } from './physics';
+import { BALL_COLORS } from './colors';
 import { mulberry32, type Rng } from './rng';
 import type { Ball, Decoy, Effect, GameResult, Item, ItemKind, MeteorStrike, Mode, Projectile, WeaponId } from './types';
 import { DECOY, HEAL, METEOR, WEAPONS, pickWeapon } from './weapons';
@@ -14,10 +15,6 @@ const TIME_LIMIT = 120;
 const BASE_SPEED = 110;
 const TAU = Math.PI * 2;
 
-export const BALL_COLORS = [
-  '#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#14b8a6', '#f97316',
-  '#6366f1', '#84cc16', '#06b6d4', '#f43f5e', '#8b5cf6', '#10b981', '#d946ef', '#0ea5e9',
-];
 
 /**
  * 게임 로직 전체. 렌더링과 분리되어 있어 화면 없이도 시뮬레이션 가능.

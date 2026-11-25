@@ -1,7 +1,10 @@
 import type { Ball } from './types';
 
+/** 위치·속도·반지름만 있으면 되는 물체 (배틀 원, 분신, 레이스 원 공용) */
+export type Body = Pick<Ball, 'x' | 'y' | 'vx' | 'vy' | 'r'>;
+
 /** 같은 질량의 원끼리 탄성 충돌 + 겹침 해소 */
-export function collideBalls(a: Ball, b: Ball): void {
+export function collideBalls(a: Body, b: Body): void {
   let dx = b.x - a.x;
   let dy = b.y - a.y;
   let dist = Math.hypot(dx, dy);
@@ -29,9 +32,7 @@ export function collideBalls(a: Ball, b: Ball): void {
   }
 }
 
-/** 위치·속도·반지름만 있으면 되는 경기장 벽 반사 (원, 분신 공용) */
-type Body = Pick<Ball, 'x' | 'y' | 'vx' | 'vy' | 'r'>;
-
+/** 원형 경기장 벽 반사. 벽에 닿았으면 true */
 export function collideArena(b: Body, arenaR: number): boolean {
   const d = Math.hypot(b.x, b.y);
   const limit = arenaR - b.r;
