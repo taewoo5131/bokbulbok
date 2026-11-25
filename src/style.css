@@ -147,7 +147,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   #app { padding: 10px; }
   .arena-layout { flex-direction: column; align-items: center; }
   .canvas-wrap { width: min(100%, calc(100vh - 230px)); }
-  body.race .canvas-wrap { width: min(100%, calc((100vh - 230px) * 0.75)); }
+  body.race .canvas-wrap { width: min(100%, calc((100vh - 230px) * 4 / 3)); }
   .roster { width: 100%; flex-direction: row; flex-wrap: wrap; max-height: 32vh; }
   .roster li { width: calc(50% - 3px); }
 }
@@ -198,7 +198,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .game-switch a.active { color: #fcd34d; border-color: var(--accent); background: #2a2213; }
 
 /* 레이스는 세로로 긴 화면 */
-body.race .canvas-wrap { aspect-ratio: 3 / 4; width: min(100%, calc((100vh - 110px) * 0.75)); }
+body.race .canvas-wrap { aspect-ratio: 4 / 3; width: min(100%, calc((100vh - 110px) * 4 / 3)); }
 
 /* ───── 사이트 공통: 메뉴 / 푸터 / 문서 페이지 ───── */
 .site-header {

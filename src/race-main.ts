@@ -25,7 +25,7 @@ runShell<Race>({
     return race.balls.map((b) => {
       const r = rank.get(b.id)!;
       return {
-        bar: b.place ? 1 : Math.max(0, b.y) / race.finishY,
+        bar: b.place ? 1 : b.progress / race.total,
         barColor: b.place ? '#fbbf24' : '#38bdf8',
         icon: b.place ? (['🥇', '🥈', '🥉'][b.place - 1] ?? `${b.place}위`) : `${r}위`,
         out: false,

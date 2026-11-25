@@ -1,5 +1,5 @@
 /**
- * 🏁 레이스: 원들이 장애물 트랙을 굴러 내려가 결승선에 도착하는 순서로 결과를 정함.
+ * 🏁 레이스: 원들이 🐍 지그재그 통로 코스를 굴러가 결승에 도착하는 순서로 결과를 정함.
  * 렌더링과 분리되어 있고, 모든 랜덤은 시드 RNG → 같은 (이름, 모드, 시드)면 같은 경기.
  */
 import { colorFor } from '../game/colors';
@@ -9,26 +9,38 @@ import { sizeFor, type MapSize } from '../game/size';
 import type { Effect, Mode } from '../game/types';
 import type { Result } from '../shell';
 import {
-  SLIDER_ROOF, TRACK_SIZE, buildTrack, gateOpen, sliderX,
-  type Gate, type Peg, type Portal, type Segment, type Slider, type Spinner, type Track, type Zone,
+  buildTrack, floorY, gateOpen, progressAt, totalProgress,
+  type Gate, type Peg, type Portal, type Segment, type Spinner, type Track, type Zone,
 } from './track';
 
-const START_Y = 30;
 const GRAVITY = 520;
 const MAX_SPEED = 300;
 const WALL_BOUNCE = 0.45;
 const SUBSTEPS = 3;
-const TIME_LIMIT: Record<MapSize, number> = { S: 150, M: 180, L: 210 };
+const TIME_LIMIT: Record<MapSize, number> = { S: 180, M: 210, L: 240 };
 /** 이 속도 이하로 이 시간 이상 멈춰 있으면 살짝 튕겨줌 (끼임 방지) */
 const STUCK_SPEED = 18;
 const STUCK_TIME = 1.2;
+/** 앞으로 거의 못 나가고 같은 곳을 맴돌면(컨베이어·역풍 등) 앞으로 밀어줌 */
+const STALL_TIME = 4;
+const STALL_GAIN = 40;
 /** 장애물을 세로 띠로 나눠 가까운 것만 충돌 검사 (100명 성능용) */
 const BAND = 100;
 const BAND_MARGIN = 40;
-/** 얼음 대포 */
-const ICE_SPEED = 330;
 const ICE_R = 7;
+/**
+ * 🔥 추격 부스트: 선두와 멀리 떨어진 원일수록 진행 방향으로 더 세게 밀어줌.
+ * 선두와의 거리가 CHASE_START(코스 폭 비율)를 넘으면 시작해서 CHASE_FULL에서 최대.
+ */
+const CHASE_START = 0.15;
+const CHASE_FULL = 1;
+const CHASE_ACCEL = 520;
+const CHASE_SPEED_BONUS = 0.6;
 export const FREEZE_TIME = 3;
+/** 얼음이 날아가는 최대 거리 */
+const ICE_RANGE = 520;
+/** 녹은 직후 다시 얼지 않는 시간 */
+const ICE_IMMUNE = 3;
 
 export interface RaceBall {
   id: number;
@@ -41,25 +53,34 @@ export interface RaceBall {
   r: number;
   /** 도착 순서 (1부터), 아직이면 0 */
   place: number;
+  /** 코스 진행도 (클수록 앞) */
+  progress: number;
   stuck: number;
+  stall: number;
+  /** 같은 자리에서 연달아 멈춘 횟수 */
+  stallCount: number;
+  best: number;
   /** 부스터 위에 있는지 (연출용) */
   boosted: boolean;
-  /** 닫힌 함정문 위에서 기다리는 중 (끼임 판정 제외) */
+  /** 닫힌 문 앞에서 기다리는 중 (끼임 판정 제외) */
   waiting: boolean;
   portalCd: number;
   /** 뒤로 보내는 포털은 한 번만 (무한 반복 방지) */
   sentBack: boolean;
   /** 얼어붙은 남은 시간. 0보다 크면 그 자리에 멈춤 */
   frozen: number;
+  /** 녹은 뒤 얼음 면역 남은 시간 */
+  iceImmune: number;
+  /** 추격 부스트 세기 0~1 (연출용) */
+  chase: number;
 }
 
-export interface IceShot { x: number; y: number; vx: number }
+export interface IceShot { x: number; y: number; vx: number; vy: number; dist: number }
 
 interface Band {
   segments: Segment[];
   pegs: Peg[];
   spinners: Spinner[];
-  sliders: Slider[];
   gates: Gate[];
   portals: Portal[];
   zones: Zone[];
@@ -68,14 +89,15 @@ interface Band {
 export class Race {
   balls: RaceBall[] = [];
   effects: Effect[] = [];
+  iceShots: IceShot[] = [];
   track: Track;
   readonly size: MapSize;
+  readonly total: number;
   time = 0;
   result: Result | null = null;
   private rng: Rng;
   private finishedCount = 0;
   private bands: Band[] = [];
-  iceShots: IceShot[] = [];
   /** 대포별 마지막으로 쏜 차례 */
   private cannonShots: number[] = [];
 
@@ -87,18 +109,15 @@ export class Race {
     this.rng = mulberry32(seed);
     const n = names.length;
     this.size = sizeFor(n);
-    const W = TRACK_SIZE[this.size].width;
-
-    // 출발 그리드: 한 줄에 들어가는 만큼 여러 줄로
-    const r = this.size === 'S' ? Math.max(10, Math.min(17, 220 / (n + 4))) : 10;
-    const pitch = r * 2 + 8;
-    const perRow = Math.max(1, Math.floor((W - 60) / pitch));
-    const rows = Math.ceil(n / perRow);
-    this.track = buildTrack(this.rng, this.size, START_Y + rows * pitch);
+    this.track = buildTrack(this.rng, this.size);
+    this.total = totalProgress(this.track);
     this.indexTrack();
     this.cannonShots = this.track.cannons.map((c) => Math.floor(c.phase / c.period));
 
-    // 출발 위치는 무작위로 섞어서 입력 순서가 유불리에 영향 없게
+    // 출발: 첫 통로 입구 바닥 위에 격자로 (자리는 무작위로 섞어 입력 순서와 무관하게)
+    const r = this.size === 'S' ? Math.max(10, Math.min(17, 220 / (n + 4))) : 10;
+    const pitch = r * 2 + 6;
+    const perRow = Math.max(1, Math.floor(Math.min(460, this.track.width * 0.33) / pitch));
     const slots = names.map((_, i) => i);
     for (let i = slots.length - 1; i > 0; i--) {
       const j = Math.floor(this.rng() * (i + 1));
@@ -106,40 +125,33 @@ export class Race {
     }
     names.forEach((name, id) => {
       const slot = slots[id];
-      const row = Math.floor(slot / perRow);
-      const inRow = Math.min(perRow, n - row * perRow);
-      const col = slot % perRow;
-      const span = (inRow - 1) * pitch;
+      const x = 20 + r + (slot % perRow) * pitch;
+      const y = floorY(this.track, 0, x) - r - 2 - Math.floor(slot / perRow) * pitch;
       this.balls.push({
-        id, name, color: colorFor(id),
-        x: W / 2 - span / 2 + col * pitch,
-        y: START_Y + row * pitch,
-        vx: (this.rng() - 0.5) * 80,
-        vy: 0,
-        r, place: 0, stuck: 0, boosted: false, waiting: false, portalCd: 0, sentBack: false, frozen: 0,
+        id, name, color: colorFor(id), x, y,
+        vx: (this.rng() - 0.5) * 40, vy: 0, r,
+        place: 0, progress: 0, stuck: 0, stall: 0, stallCount: 0, best: 0,
+        boosted: false, waiting: false, portalCd: 0, sentBack: false, frozen: 0, iceImmune: 0, chase: 0,
       });
     });
+    for (const b of this.balls) b.best = b.progress = progressAt(this.track, b.x, b.y);
   }
 
   get finished(): boolean {
     return this.result !== null;
   }
 
-  get finishY(): number {
-    return this.track.finishY;
-  }
-
   get arrived(): number {
     return this.finishedCount;
   }
 
-  /** 1등 → 꼴등 현재 순위 (도착한 순서, 그다음 많이 내려간 순) */
+  /** 1등 → 꼴등 현재 순위 (도착한 순서, 그다음 코스를 많이 간 순) */
   standings(): RaceBall[] {
     return [...this.balls].sort((a, b) => {
       if (a.place && b.place) return a.place - b.place;
       if (a.place) return -1;
       if (b.place) return 1;
-      return b.y - a.y || a.id - b.id;
+      return b.progress - a.progress || a.id - b.id;
     });
   }
 
@@ -155,7 +167,12 @@ export class Race {
 
     for (const b of this.balls) {
       if (b.place) continue;
-      if (b.y >= this.track.finishY) this.arrive(b);
+      if (b.y >= this.track.finishY) {
+        this.arrive(b);
+        continue;
+      }
+      b.progress = progressAt(this.track, b.x, b.y);
+      this.checkStall(b, dt);
     }
     this.checkEnd();
   }
@@ -165,7 +182,7 @@ export class Race {
   private indexTrack(): void {
     const t = this.track;
     const count = Math.ceil((t.finishY + 400) / BAND) + 1;
-    this.bands = Array.from({ length: count }, () => ({ segments: [], pegs: [], spinners: [], sliders: [], gates: [], portals: [], zones: [] }));
+    this.bands = Array.from({ length: count }, () => ({ segments: [], pegs: [], spinners: [], gates: [], portals: [], zones: [] }));
     const add = <K extends keyof Band>(key: K, item: Band[K][number], y0: number, y1: number) => {
       const a = Math.max(0, Math.floor((y0 - BAND_MARGIN) / BAND));
       const b = Math.min(count - 1, Math.floor((y1 + BAND_MARGIN) / BAND));
@@ -174,8 +191,7 @@ export class Race {
     for (const s of t.segments) add('segments', s, Math.min(s.y1, s.y2), Math.max(s.y1, s.y2));
     for (const p of t.pegs) add('pegs', p, p.y - p.r, p.y + p.r);
     for (const s of t.spinners) add('spinners', s, s.y - s.half, s.y + s.half);
-    for (const s of t.sliders) add('sliders', s, s.y, s.y + SLIDER_ROOF);
-    for (const g of t.gates) add('gates', g, g.y, g.y);
+    for (const g of t.gates) add('gates', g, Math.min(g.y1, g.y2), Math.max(g.y1, g.y2));
     for (const p of t.portals) add('portals', p, p.y - p.r, p.y + p.r);
     for (const z of t.zones) add('zones', z, z.y, z.y + z.h);
   }
@@ -188,15 +204,18 @@ export class Race {
   private substep(h: number, t: number): void {
     const racing = this.balls.filter((b) => !b.place);
     const W = this.track.width;
+    const lead = racing.reduce((m, b) => Math.max(m, b.progress), 0);
 
     for (const b of racing) {
       if (b.frozen > 0) {
         b.frozen = Math.max(0, b.frozen - h);
         b.vx = 0;
         b.vy = 0;
+        if (b.frozen === 0) b.iceImmune = ICE_IMMUNE;
         if (b.frozen === 0) this.effects.push({ kind: 'ring', x: b.x, y: b.y, radius: b.r * 2, color: '#bae6fd', t: 0, life: 0.4 });
         continue;
       }
+      b.iceImmune = Math.max(0, b.iceImmune - h);
       b.vy += GRAVITY * h;
       b.boosted = false;
       b.waiting = false;
@@ -206,20 +225,28 @@ export class Race {
         for (const z of band.zones) {
           if (b.x < z.x || b.x > z.x + z.w || b.y < z.y || b.y > z.y + z.h) continue;
           if (z.kind === 'boost') {
-            b.vy += 1400 * h;
+            b.vx += z.dir * 900 * h;
             b.boosted = true;
           } else if (z.kind === 'mud') {
-            const k = Math.max(0, 1 - 4 * h);
-            b.vx *= k;
-            b.vy *= k;
-          } else {
-            // 역풍: 중력을 대부분 상쇄 + 아래로 가는 속도를 깎음
-            b.vy -= 430 * h;
-            if (b.vy > 60) b.vy *= Math.max(0, 1 - 2.5 * h);
+            // 진흙: 빠를수록 많이 느려지지만 기어가는 속도 아래로는 안 떨어뜨림
+            if (Math.hypot(b.vx, b.vy) > 80) {
+              const k = Math.max(0, 1 - 1.6 * h);
+              b.vx *= k;
+              b.vy *= k;
+            }
+          } else if (b.vx * z.dir > 100) {
+            // 역풍: 앞으로 가는 속도를 깎지만 뒤로 밀지는 않음
+            b.vx -= z.dir * 450 * h;
           }
         }
       }
-      const max = b.boosted ? MAX_SPEED * 1.6 : MAX_SPEED;
+      // 추격 부스트
+      b.chase = Math.max(0, Math.min(1, ((lead - b.progress) / W - CHASE_START) / (CHASE_FULL - CHASE_START)));
+      if (b.chase > 0) {
+        const k = Math.min(this.track.corridors.length - 1, Math.floor(b.progress / W));
+        b.vx += this.track.corridors[k].dir * CHASE_ACCEL * b.chase * h;
+      }
+      const max = (b.boosted ? MAX_SPEED * 1.6 : MAX_SPEED) * (1 + CHASE_SPEED_BONUS * b.chase);
       const s = Math.hypot(b.vx, b.vy);
       if (s > max) {
         b.vx *= max / s;
@@ -251,10 +278,13 @@ export class Race {
       const band = this.bandAt(b.y);
       if (band) {
         for (const sg of band.segments) {
-          const len = Math.hypot(sg.x2 - sg.x1, sg.y2 - sg.y1);
           const cv = sg.conveyor ?? 0;
-          collideSegment(b, sg.x1, sg.y1, sg.x2, sg.y2, WALL_BOUNCE,
-            ((sg.x2 - sg.x1) / len) * cv, ((sg.y2 - sg.y1) / len) * cv, 0, 0, 0, cv ? 0.25 : 0);
+          if (cv) {
+            const len = Math.hypot(sg.x2 - sg.x1, sg.y2 - sg.y1);
+            collideSegment(b, sg.x1, sg.y1, sg.x2, sg.y2, WALL_BOUNCE, ((sg.x2 - sg.x1) / len) * cv, ((sg.y2 - sg.y1) / len) * cv, 0, 0, 0, 0.2);
+          } else {
+            collideSegment(b, sg.x1, sg.y1, sg.x2, sg.y2, sg.kind === 'ramp' ? 0.2 : WALL_BOUNCE, 0, 0, 0, 0, 0, 0);
+          }
         }
         for (const p of band.pegs) collidePeg(b, p);
         for (const sp of band.spinners) {
@@ -266,18 +296,9 @@ export class Race {
             collideSegment(b, sp.x - dx, sp.y - dy, sp.x + dx, sp.y + dy, 0.6, 0, 0, sp.x, sp.y, sp.omega, 0);
           }
         }
-        for (const sl of band.sliders) {
-          // 지붕(∧) 모양이라 위에 올라탄 원은 양옆으로 미끄러져 내려감
-          const cx = sliderX(sl, t);
-          const vx = sl.amp * sl.omega * Math.cos(sl.omega * t + sl.phase);
-          collideSegment(b, cx - sl.half, sl.y + SLIDER_ROOF, cx, sl.y, 0.4, vx, 0, 0, 0, 0, 0);
-          collideSegment(b, cx, sl.y, cx + sl.half, sl.y + SLIDER_ROOF, 0.4, vx, 0, 0, 0, 0, 0);
-        }
         for (const g of band.gates) {
           if (gateOpen(g, t)) continue;
-          const before = b.vy;
-          collideSegment(b, g.x1, g.y, g.x2, g.y, 0.2, 0, 0, 0, 0, 0, 0);
-          if (b.y < g.y && b.x >= g.x1 && b.x <= g.x2 && Math.abs(b.y + b.r - g.y) < 2 && before >= 0) b.waiting = true;
+          if (collideSegment(b, g.x1, g.y1, g.x2, g.y2, 0.2, 0, 0, 0, 0, 0, 0)) b.waiting = true;
         }
         for (const p of band.portals) {
           if (b.portalCd > 0 || Math.hypot(b.x - p.x, b.y - p.y) > p.r) continue;
@@ -285,7 +306,7 @@ export class Race {
           this.teleport(b, p);
         }
       }
-      // 좌우 벽
+      // 바깥 벽
       if (b.x < b.r) {
         b.x = b.r;
         if (b.vx < 0) b.vx = -b.vx * WALL_BOUNCE;
@@ -294,7 +315,7 @@ export class Race {
         if (b.vx > 0) b.vx = -b.vx * WALL_BOUNCE;
       }
 
-      // 끼임 방지 (함정문 대기는 제외)
+      // 끼임 방지 (문 앞 대기는 제외)
       if (!b.waiting && Math.hypot(b.vx, b.vy) < STUCK_SPEED) {
         b.stuck += h;
         if (b.stuck > STUCK_TIME) {
@@ -309,15 +330,40 @@ export class Race {
     }
   }
 
+  /** 오래 앞으로 못 나가면(문 앞 대기·얼음 제외) 진행 방향으로 밀어줌 */
+  private checkStall(b: RaceBall, dt: number): void {
+    if (b.progress > b.best + STALL_GAIN) {
+      b.best = b.progress;
+      b.stall = 0;
+      b.stallCount = 0;
+      return;
+    }
+    if (b.waiting || b.frozen > 0) return;
+    b.stall += dt;
+    if (b.stall < STALL_TIME) return;
+    const k = Math.min(this.track.corridors.length - 1, Math.floor(b.progress / this.track.width));
+    const dir = this.track.corridors[k].dir;
+    b.stallCount++;
+    if (b.stallCount >= 3) {
+      // 그래도 못 빠져나가면 바닥을 따라 조금 앞으로 옮겨줌 (최후의 안전장치)
+      b.x = Math.max(b.r, Math.min(this.track.width - b.r, b.x + dir * 70));
+      b.y = floorY(this.track, k, b.x) - b.r - 2;
+      b.stallCount = 0;
+    }
+    b.vx = dir * 260;
+    b.vy = -160;
+    b.stall = 0;
+    b.best = b.progress;
+  }
+
   // ───────────────────────── 얼음 대포 ─────────────────────────
 
   private fireCannons(): void {
-    const W = this.track.width;
     this.track.cannons.forEach((c, i) => {
       const k = Math.floor((this.time + c.phase) / c.period);
       if (k <= this.cannonShots[i]) return;
       this.cannonShots[i] = k;
-      this.iceShots.push({ x: c.dir > 0 ? 14 : W - 14, y: c.y, vx: c.dir * ICE_SPEED });
+      this.iceShots.push({ x: c.x, y: c.y, vx: c.vx, vy: c.vy, dist: 0 });
     });
   }
 
@@ -325,9 +371,11 @@ export class Race {
     const W = this.track.width;
     this.iceShots = this.iceShots.filter((s) => {
       s.x += s.vx * h;
-      if (s.x < -10 || s.x > W + 10) return false;
+      s.y += s.vy * h;
+      s.dist += Math.hypot(s.vx, s.vy) * h;
+      if (s.x < -10 || s.x > W + 10 || s.dist > ICE_RANGE) return false;
       for (const b of racing) {
-        if (b.frozen > 0 || Math.abs(b.y - s.y) > b.r + ICE_R || Math.hypot(b.x - s.x, b.y - s.y) > b.r + ICE_R) continue;
+        if (b.frozen > 0 || b.iceImmune > 0 || Math.abs(b.y - s.y) > b.r + ICE_R || Math.hypot(b.x - s.x, b.y - s.y) > b.r + ICE_R) continue;
         b.frozen = FREEZE_TIME;
         b.vx = 0;
         b.vy = 0;
@@ -359,6 +407,8 @@ export class Race {
   private arrive(b: RaceBall): void {
     this.finishedCount++;
     b.place = this.finishedCount;
+    b.progress = this.total;
+    b.frozen = 0;
     b.y = this.track.finishY + b.r + 4;
     if (b.place <= 3 || this.balls.length <= 16) {
       const medal = ['🥇', '🥈', '🥉'][b.place - 1] ?? `${b.place}위`;
@@ -387,15 +437,15 @@ export class Race {
 // ───────────────────────── 충돌 ─────────────────────────
 
 /**
- * 원 vs 선분.
- * - (lvx, lvy): 선분 표면의 직선 속도 (컨베이어, 움직이는 막대)
+ * 원 vs 선분. 닿았으면 true.
+ * - (lvx, lvy): 선분 표면의 직선 속도 (컨베이어)
  * - (cx, cy, omega): 회전 중심/각속도 (회전 막대)
  * - grip: 닿아 있는 동안 표면 속도에 끌려가는 정도 (0~1)
  */
 function collideSegment(
   b: RaceBall, ax: number, ay: number, bx: number, by: number, bounce: number,
   lvx: number, lvy: number, cx: number, cy: number, omega: number, grip: number,
-): void {
+): boolean {
   const abx = bx - ax;
   const aby = by - ay;
   const len2 = abx * abx + aby * aby;
@@ -405,7 +455,7 @@ function collideSegment(
   let nx = b.x - px;
   let ny = b.y - py;
   let d = Math.hypot(nx, ny);
-  if (d >= b.r) return;
+  if (d >= b.r) return false;
   if (d === 0) {
     nx = -aby;
     ny = abx;
@@ -432,6 +482,7 @@ function collideSegment(
   }
   b.vx = rvx + svx;
   b.vy = rvy + svy;
+  return true;
 }
 
 function collidePeg(b: RaceBall, p: Peg): void {

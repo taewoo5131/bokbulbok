@@ -32,8 +32,8 @@ npm run build    # dist/ 에 정적 파일 생성
 | `src/render/canvas.ts` | Canvas 그리기 |
 | `src/shell.ts` | 게임 공통 화면: 입력, 경기 루프, 결과, 공유 링크 (각 게임은 `GameDef`만 구현) |
 | `src/main.ts` | 배틀 페이지 진입점 |
-| `src/race/race.ts` | 레이스 물리, 도착 판정 |
-| `src/race/track.ts` | 장애물 14종(얼음 대포 포함) 정의와 트랙 무작위 조립 |
+| `src/race/race.ts` | 레이스 물리, 진행도·순위, 추격 부스트, 얼음, 도착 판정 |
+| `src/race/track.ts` | 🐍 지그재그 통로 코스 생성: 장애물 모듈 11종, 지름길 문, 얼음 대포, 포털 |
 | `src/render/race-canvas.ts` | 레이스 그리기 (따라가는 카메라, 미니맵) |
 | `src/race-main.ts` | 레이스 페이지 진입점 |
 

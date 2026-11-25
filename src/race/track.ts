@@ -1,64 +1,213 @@
 /**
- * 레이스 트랙: 장애물 정의 + 무작위 구간 조립.
+ * 레이스 트랙: 🐍 뱀 모양(지그재그 통로) 코스.
+ * 통로 k는 짝수면 왼→오, 홀수면 오→왼으로 진행. 바닥은 진행 방향으로 살짝 기울어 있고,
+ * 끝의 구멍으로 떨어지면 아래 통로가 시작됨. 바닥 중간의 🎰 지름길 문이 열린 순간 빠지면
+ * 아래 통로 한가운데로 떨어져 크게 앞서 나감.
  * 모든 랜덤은 전달받은 시드 RNG만 사용 → 같은 시드면 같은 트랙.
  */
 import type { Rng } from '../game/rng';
 import type { MapSize } from '../game/size';
 
-export interface Segment { x1: number; y1: number; x2: number; y2: number; /** 컨베이어: 선분 방향으로 표면이 움직이는 속도 */ conveyor?: number }
+export interface Segment { x1: number; y1: number; x2: number; y2: number; /** 컨베이어: x1→x2 방향으로 표면이 움직이는 속도 */ conveyor?: number; kind?: 'floor' | 'ramp' }
 export interface Peg { x: number; y: number; r: number; bounce: number }
 /** 회전 막대. arms=2면 십자 풍차 */
 export interface Spinner { x: number; y: number; half: number; omega: number; phase: number; arms: 1 | 2 }
-/** 좌우로 왕복하는 가로 막대 */
-export interface Slider { y: number; mid: number; amp: number; half: number; omega: number; phase: number }
-/** 주기적으로 열리는 바닥 문. 닫혀 있을 때만 바닥 역할 */
-export interface Gate { y: number; x1: number; x2: number; period: number; openFor: number; phase: number }
+/** 주기적으로 열리는 문. floor=바닥(지름길), barrier=통로를 막는 세로 문 */
+export interface Gate { x1: number; y1: number; x2: number; y2: number; kind: 'floor' | 'barrier'; period: number; openFor: number; phase: number }
 /** 들어가면 다른 위치로 순간이동. 앞으로 갈지 뒤로 갈지는 겉보기로 알 수 없음 */
 export interface Portal { x: number; y: number; r: number; tx: number; ty: number; forward: boolean }
-export interface Zone { x: number; y: number; w: number; h: number; kind: 'boost' | 'mud' | 'wind' }
-/** 벽에 붙은 얼음 대포. period초마다 가로로 얼음을 쏘고, 맞은 원은 그 자리에서 잠시 얼어붙음 */
-export interface IceCannon { y: number; /** 1이면 왼쪽 벽에서 오른쪽으로, -1이면 반대 */ dir: 1 | -1; period: number; phase: number }
-export interface SectionLabel { y: number; text: string }
+/** dir: 그 통로의 진행 방향(1=오른쪽). boost는 앞으로 밀고, wind는 앞으로 가는 속도를 깎음 */
+export interface Zone { x: number; y: number; w: number; h: number; kind: 'boost' | 'mud' | 'wind'; dir: 1 | -1 }
+/** 통로 출구 벽의 얼음 대포. 바닥 기울기를 따라 거꾸로(입구 쪽으로) 얼음을 쏨 */
+export interface IceCannon { x: number; y: number; vx: number; vy: number; period: number; phase: number }
+export interface SectionLabel { x: number; y: number; text: string }
+export interface Corridor { base: number; dir: 1 | -1 }
 
 export interface Track {
   width: number;
-  /** 출발 줄 아래 첫 장애물 시작 위치 */
-  startY: number;
+  slope: number;
+  hole: number;
+  corridors: Corridor[];
   finishY: number;
   segments: Segment[];
   pegs: Peg[];
   spinners: Spinner[];
-  sliders: Slider[];
   gates: Gate[];
   portals: Portal[];
   zones: Zone[];
-  labels: SectionLabel[];
   cannons: IceCannon[];
+  labels: SectionLabel[];
 }
 
-export const TRACK_SIZE: Record<MapSize, { width: number; sections: number; funnelScale: number }> = {
-  S: { width: 600, sections: 11, funnelScale: 1 },
-  M: { width: 900, sections: 13, funnelScale: 1.5 },
-  L: { width: 1200, sections: 15, funnelScale: 2 },
+export const TRACK_SIZE: Record<MapSize, { width: number; corridors: number; clearance: number; hole: number }> = {
+  S: { width: 1400, corridors: 6, clearance: 210, hole: 120 },
+  M: { width: 1800, corridors: 7, clearance: 240, hole: 150 },
+  L: { width: 2200, corridors: 7, clearance: 270, hole: 180 },
 };
 
+const SLOPE = 0.13;
+const TOP = 320;
 const TAU = Math.PI * 2;
 
-/** 움직이는 막대의 지붕 높이 (가운데가 이만큼 높음) */
-export const SLIDER_ROOF = 26;
+// ───────────────────────── 좌표 도우미 ─────────────────────────
 
-export function sliderX(s: Slider, t: number): number {
-  return s.mid + s.amp * Math.sin(s.omega * t + s.phase);
+export function floorY(t: Track, k: number, x: number): number {
+  const c = t.corridors[k];
+  return c.base + t.slope * (c.dir > 0 ? x : t.width - x);
+}
+
+export function ceilY(t: Track, k: number, x: number): number {
+  return k === 0 ? floorY(t, 0, x) - 340 : floorY(t, k - 1, x);
+}
+
+/** 원의 위치 → 몇 번째 통로인지 (결승 구역이면 corridors.length) */
+export function corridorAt(t: Track, x: number, y: number): number {
+  for (let k = 0; k < t.corridors.length; k++) if (y < floorY(t, k, x) + 4) return k;
+  return t.corridors.length;
+}
+
+/** 코스를 따라 얼마나 왔는지 (통로 번호 × 폭 + 통로 진행 방향 거리) */
+export function progressAt(t: Track, x: number, y: number): number {
+  const k = corridorAt(t, x, y);
+  if (k >= t.corridors.length) return totalProgress(t);
+  const u = t.corridors[k].dir > 0 ? x : t.width - x;
+  return k * t.width + Math.max(0, Math.min(t.width, u));
+}
+
+export function totalProgress(t: Track): number {
+  return t.corridors.length * t.width;
+}
+
+/** 진행도 → 그 지점 바닥 바로 위 좌표 */
+function pointAt(t: Track, progress: number): { x: number; y: number } {
+  const k = Math.max(0, Math.min(t.corridors.length - 1, Math.floor(progress / t.width)));
+  const u = progress - k * t.width;
+  const x = t.corridors[k].dir > 0 ? u : t.width - u;
+  return { x, y: floorY(t, k, x) - 40 };
 }
 
 export function gateOpen(g: Gate, t: number): boolean {
   return (t + g.phase) % g.period < g.openFor;
 }
 
-// ───────────────────────── 구간 ─────────────────────────
+// ───────────────────────── 장애물 모듈 ─────────────────────────
 
-interface Ctx { t: Track; y: number; rng: Rng; W: number; funnelScale: number; pendingPortals: { p: Portal; dy: number }[] }
-type Builder = { name: string; build: (c: Ctx) => number };
+interface ModCtx {
+  t: Track; k: number; rng: Rng;
+  /** 통로 진행 방향 거리 u → x */
+  X: (u: number) => number;
+  u0: number; len: number;
+  pendingPortals: { p: Portal; delta: number }[];
+}
+interface Module { name: string; len: number; build: (c: ModCtx) => void; /** 바닥을 바꾸는 모듈 (컨베이어·점프대) */ floor?: 'conveyor' | 'ramp' }
+
+const mid = (c: ModCtx, x: number) => (floorY(c.t, c.k, x) + ceilY(c.t, c.k, x)) / 2;
+const height = (c: ModCtx, x: number) => floorY(c.t, c.k, x) - ceilY(c.t, c.k, x);
+
+const pegForest: Module = {
+  name: '📍 핀 숲', len: 300,
+  build: (c) => {
+    for (let u = c.u0 + 20; u < c.u0 + c.len; u += 70) {
+      const x = c.X(u);
+      const f = floorY(c.t, c.k, x);
+      const h = height(c, x);
+      for (let row = 1; row <= 2; row++) {
+        if (c.rng() < 0.2) continue;
+        const yy = f - (h * row) / 3 + ((Math.round(u / 55) % 2) * h) / 6;
+        c.t.pegs.push({ x, y: yy, r: 8, bounce: 0.5 });
+      }
+    }
+  },
+};
+
+const spinners: Module = {
+  name: '🌀 회전 막대', len: 280,
+  build: (c) => {
+    for (let i = 0; i < 2; i++) {
+      const x = c.X(c.u0 + 70 + i * 140);
+      c.t.spinners.push({
+        x, y: mid(c, x), half: Math.min(60, height(c, x) * 0.36),
+        omega: (c.rng() < 0.5 ? -1 : 1) * (1.8 + c.rng() * 1.4), phase: c.rng() * TAU, arms: 1,
+      });
+    }
+  },
+};
+
+const windmill: Module = {
+  name: '🌬️ 풍차', len: 260,
+  build: (c) => {
+    const x = c.X(c.u0 + c.len / 2);
+    c.t.spinners.push({
+      x, y: mid(c, x), half: Math.min(110, height(c, x) * 0.42),
+      omega: (c.rng() < 0.5 ? -1 : 1) * (0.9 + c.rng() * 0.7), phase: c.rng() * TAU, arms: 2,
+    });
+  },
+};
+
+const bumpers: Module = {
+  name: '🎯 범퍼', len: 280,
+  build: (c) => {
+    for (let i = 0; i < 3; i++) {
+      const x = c.X(c.u0 + 40 + i * 100 + c.rng() * 30);
+      const f = floorY(c.t, c.k, x);
+      const r = 16 + c.rng() * 8;
+      // 바닥과의 틈이 원 지름보다 넉넉하게 (끼임 방지)
+      c.t.pegs.push({ x, y: f - r - 60 - c.rng() * Math.max(0, height(c, x) - 2 * r - 120) * 0.6, r, bounce: 0.95 });
+    }
+  },
+};
+
+const zoneModule = (name: string, kind: Zone['kind'], len: number): Module => ({
+  name, len,
+  build: (c) => {
+    const xa = c.X(c.u0);
+    const xb = c.X(c.u0 + c.len);
+    const x = Math.min(xa, xb);
+    const top = Math.min(ceilY(c.t, c.k, xa), ceilY(c.t, c.k, xb)) + 10;
+    const bottom = Math.max(floorY(c.t, c.k, xa), floorY(c.t, c.k, xb));
+    // 진흙·부스터는 바닥 근처만, 역풍은 통로 전체 높이
+    const y = kind === 'wind' ? top : bottom - 70;
+    c.t.zones.push({ x, y, w: Math.abs(xb - xa), h: bottom - y, kind, dir: c.t.corridors[c.k].dir });
+  },
+});
+
+const mud = zoneModule('🟫 진흙탕', 'mud', 260);
+const booster = zoneModule('⚡ 부스터', 'boost', 220);
+const headwind = zoneModule('💨 역풍', 'wind', 300);
+
+const conveyor: Module = { name: '⬅️ 역주행 컨베이어', len: 200, floor: 'conveyor', build: () => {} };
+const jumpRamp: Module = { name: '🛹 점프대', len: 160, floor: 'ramp', build: () => {} };
+
+const portals: Module = {
+  name: '❓ 미스터리 포털', len: 220,
+  build: (c) => {
+    const forward = c.rng() < 0.5;
+    const x1 = c.X(c.u0 + 60);
+    const x2 = c.X(c.u0 + 160);
+    // 두 개 중 하나는 앞으로, 하나는 뒤로 (겉보기로는 구분 불가)
+    const p1: Portal = { x: x1, y: floorY(c.t, c.k, x1) - 30, r: 22, tx: 0, ty: 0, forward };
+    const p2: Portal = { x: x2, y: floorY(c.t, c.k, x2) - 30, r: 22, tx: 0, ty: 0, forward: !forward };
+    for (const p of [p1, p2]) {
+      c.t.portals.push(p);
+      c.pendingPortals.push({ p, delta: p.forward ? c.t.width * 0.8 : -c.t.width * 0.7 });
+    }
+  },
+};
+
+const barrier: Module = {
+  name: '🚧 차단문', len: 120,
+  build: (c) => {
+    const x = c.X(c.u0 + 60);
+    c.t.gates.push({
+      x1: x, y1: floorY(c.t, c.k, x) + 2, x2: x, y2: ceilY(c.t, c.k, x),
+      kind: 'barrier', period: 2.4 + c.rng() * 0.8, openFor: 1 + c.rng() * 0.4, phase: c.rng() * 3,
+    });
+  },
+};
+
+const MODULES: Module[] = [pegForest, spinners, windmill, bumpers, mud, booster, headwind, conveyor, jumpRamp, portals, barrier];
+
+// ───────────────────────── 조립 ─────────────────────────
 
 const shuffle = <T>(arr: T[], rng: Rng): T[] => {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -68,293 +217,123 @@ const shuffle = <T>(arr: T[], rng: Rng): T[] => {
   return arr;
 };
 
-const pegField: Builder = {
-  name: '📍 핀 밭',
-  build: ({ t, y, rng, W }) => {
-    const rows = 7;
-    const gapX = 70 + rng() * 15;
-    const offset = rng() * gapX;
-    for (let row = 0; row < rows; row++) {
-      const shift = (row % 2) * (gapX / 2) + offset;
-      for (let x = 30 + (shift % gapX); x < W - 20; x += gapX) {
-        if (rng() < 0.12) continue;
-        t.pegs.push({ x, y: y + 40 + row * 60, r: 8, bounce: 0.5 });
-      }
-    }
-    return 40 + rows * 60 + 40;
-  },
-};
+/** 통로 입구에서 이만큼은 비워 둠 (떨어진 원이 착지할 자리) */
+const ENTRY = 170;
+const SHORTCUT_CHANCE = 0.65;
+const CANNON_CHANCE = 0.4;
 
-const zigzag: Builder = {
-  name: '↘️ 지그재그',
-  build: ({ t, y, rng, W }) => {
-    const count = 4;
-    const gap = 110 + rng() * 40;
-    let fromLeft = rng() < 0.5;
-    let cy = y + 30;
-    for (let i = 0; i < count; i++) {
-      const drop = 60 + rng() * 40 + W * 0.04;
-      if (fromLeft) t.segments.push({ x1: 0, y1: cy, x2: W - gap, y2: cy + drop });
-      else t.segments.push({ x1: W, y1: cy, x2: gap, y2: cy + drop });
-      fromLeft = !fromLeft;
-      cy += drop + 70;
-    }
-    return cy - y + 20;
-  },
-};
-
-const funnel: Builder = {
-  name: '🔻 깔때기',
-  build: ({ t, y, rng, W, funnelScale }) => {
-    const gap = (90 + rng() * 30) * funnelScale;
-    const cx = W / 2 + (rng() - 0.5) * W * 0.2;
-    t.segments.push({ x1: 0, y1: y + 20, x2: cx - gap / 2, y2: y + 240 });
-    t.segments.push({ x1: W, y1: y + 20, x2: cx + gap / 2, y2: y + 240 });
-    t.pegs.push({ x: cx, y: y + 320, r: 22, bounce: 1.1 });
-    return 380;
-  },
-};
-
-const spinners: Builder = {
-  name: '🌀 회전 막대',
-  build: ({ t, y, rng, W }) => {
-    const rows = 3;
-    for (let row = 0; row < rows; row++) {
-      const count = Math.max(2, Math.round(W / 220)) + (row % 2 ? -1 : 0);
-      for (let i = 0; i < count; i++) {
-        t.spinners.push({
-          x: (W * (i + 0.5)) / count,
-          y: y + 80 + row * 160,
-          half: 50 + rng() * 16,
-          omega: (rng() < 0.5 ? -1 : 1) * (1.8 + rng() * 1.6),
-          phase: rng() * TAU,
-          arms: 1,
-        });
-      }
-    }
-    return 80 + rows * 160;
-  },
-};
-
-const lanes: Builder = {
-  name: '🛤️ 갈림길',
-  build: ({ t, y, rng, W }) => {
-    const top = y + 70;
-    const h = 280;
-    const laneCount = W >= 900 ? 4 : 3;
-    const all: (Zone['kind'] | null)[] = ['boost', 'mud', laneCount === 4 ? 'wind' : null, null];
-    const kinds = shuffle(all.slice(0, laneCount), rng);
-    const laneW = W / laneCount;
-    for (let i = 1; i < laneCount; i++) {
-      t.pegs.push({ x: laneW * i, y: y + 30, r: 10, bounce: 0.6 });
-      t.segments.push({ x1: laneW * i, y1: top, x2: laneW * i, y2: top + h });
-    }
-    kinds.forEach((kind, i) => {
-      if (kind) t.zones.push({ x: laneW * i + 6, y: top + 30, w: laneW - 12, h: h - 60, kind });
-    });
-    return 70 + h + 40;
-  },
-};
-
-const bumpers: Builder = {
-  name: '🎯 범퍼',
-  build: ({ t, y, rng, W }) => {
-    const count = Math.round(W / 110);
-    for (let i = 0; i < count; i++) {
-      t.pegs.push({ x: 60 + rng() * (W - 120), y: y + 50 + (i * 320) / count + rng() * 30, r: 18 + rng() * 10, bounce: 1.15 });
-    }
-    return 400;
-  },
-};
-
-/** 좌우로 움직이는 막대 사이를 빠져나가기 */
-const sliders: Builder = {
-  name: '↔️ 움직이는 막대',
-  build: ({ t, y, rng, W }) => {
-    const rows = 4;
-    for (let row = 0; row < rows; row++) {
-      const half = W * (0.18 + rng() * 0.08);
-      t.sliders.push({
-        y: y + 60 + row * 95,
-        mid: W / 2,
-        amp: W / 2 - half - 10,
-        half,
-        omega: 0.9 + rng() * 1.1,
-        phase: rng() * TAU,
-      });
-    }
-    return 60 + rows * 95 + 30;
-  },
-};
-
-/** 바닥 문: 닫혀 있는 동안 원들이 쌓였다가 열리면 한꺼번에 쏟아짐 */
-const trapdoors: Builder = {
-  name: '🚪 함정문',
-  build: ({ t, y, rng, W }) => {
-    const doors = W >= 900 ? 4 : 3;
-    const dw = W / doors;
-    const fy = y + 160;
-    // 위에서 문 쪽으로 모이도록 가벼운 핀
-    for (let i = 0; i < doors * 2; i++) t.pegs.push({ x: (W * (i + 0.5)) / (doors * 2), y: y + 60 + (i % 2) * 30, r: 8, bounce: 0.5 });
-    for (let i = 0; i < doors; i++) {
-      t.gates.push({ y: fy, x1: dw * i, x2: dw * (i + 1), period: 2.2 + rng() * 0.8, openFor: 0.8 + rng() * 0.3, phase: rng() * 3 });
-    }
-    return 240;
-  },
-};
-
-/** 미스터리 포털: 들어가면 앞으로 워프하거나 뒤로 되돌아감 */
-const portals: Builder = {
-  name: '❓ 미스터리 포털',
-  build: ({ t, y, rng, W, pendingPortals }) => {
-    const count = W >= 900 ? 4 : 3;
-    // 앞/뒤 포털 섞기 (최소 하나씩)
-    const dirs = shuffle([true, false, ...Array.from({ length: count - 2 }, () => rng() < 0.5)], rng);
-    for (let i = 0; i < count; i++) {
-      const p: Portal = { x: (W * (i + 0.5)) / count + (rng() - 0.5) * 40, y: y + 110 + (i % 2) * 70, r: 22, tx: 0, ty: 0, forward: dirs[i] };
-      t.pegs.push({ x: p.x - 45, y: p.y - 50, r: 8, bounce: 0.5 });
-      t.pegs.push({ x: p.x + 45, y: p.y - 50, r: 8, bounce: 0.5 });
-      pendingPortals.push({ p, dy: dirs[i] ? 700 : -600 });
-      t.portals.push(p);
-    }
-    return 280;
-  },
-};
-
-/** 컨베이어 선반: 한쪽으로 실어 나른 뒤 떨어뜨림 */
-const conveyors: Builder = {
-  name: '➡️ 컨베이어',
-  build: ({ t, y, rng, W }) => {
-    const rows = 4;
-    let dir = rng() < 0.5 ? 1 : -1;
-    for (let row = 0; row < rows; row++) {
-      const len = W * (0.55 + rng() * 0.15);
-      const cy = y + 50 + row * 90;
-      // 벽에서 시작해 열린 끝 쪽으로 살짝 기울어진 선반. 표면이 열린 끝 방향으로 움직임
-      const sx = dir > 0 ? 0 : W;
-      const ex = dir > 0 ? len : W - len;
-      t.segments.push({ x1: sx, y1: cy, x2: ex, y2: cy + 12, conveyor: 160 + rng() * 80 });
-      dir = -dir;
-    }
-    return 50 + rows * 90 + 40;
-  },
-};
-
-/** 큰 십자 풍차 */
-const windmills: Builder = {
-  name: '🌬️ 풍차',
-  build: ({ t, y, rng, W }) => {
-    const count = Math.max(1, Math.round(W / 300));
-    for (let i = 0; i < count; i++) {
-      t.spinners.push({
-        x: (W * (i + 0.5)) / count,
-        y: y + 150,
-        half: Math.min(110, W / count / 2 - 25),
-        omega: (rng() < 0.5 ? -1 : 1) * (1 + rng() * 0.8),
-        phase: rng() * TAU,
-        arms: 2,
-      });
-    }
-    return 320;
-  },
-};
-
-/** 역풍 구역: 위로 밀어 올려 속도를 늦춤. 군데군데 빈 틈으로 빠져나가야 빠름 */
-const headwind: Builder = {
-  name: '💨 역풍',
-  build: ({ t, y, rng, W }) => {
-    const cols = W >= 900 ? 5 : 3;
-    const cw = W / cols;
-    const calm = Math.floor(rng() * cols);
-    for (let i = 0; i < cols; i++) {
-      if (i === calm) continue;
-      t.zones.push({ x: cw * i + 4, y: y + 40, w: cw - 8, h: 260, kind: 'wind' });
-    }
-    t.pegs.push({ x: W / 2, y: y + 20, r: 12, bounce: 0.8 });
-    return 340;
-  },
-};
-
-/** 계단 미로: 층마다 다른 위치의 구멍으로 빠져나감 */
-const maze: Builder = {
-  name: '🧩 계단 미로',
-  build: ({ t, y, rng, W }) => {
-    const rows = 5;
-    const gap = 80 + rng() * 20;
-    for (let row = 0; row < rows; row++) {
-      const cy = y + 50 + row * 85;
-      const gx = 40 + rng() * (W - 80 - gap);
-      // 양쪽에서 구멍 쪽으로 기울어진 바닥
-      t.segments.push({ x1: 0, y1: cy, x2: gx, y2: cy + 30 });
-      t.segments.push({ x1: W, y1: cy, x2: gx + gap, y2: cy + 30 });
-    }
-    return 50 + rows * 85 + 30;
-  },
-};
-
-/** 얼음 대포 구간: 양쪽 벽의 대포가 번갈아 쏘는 사이로 핀을 튕기며 내려감 */
-const iceCannons: Builder = {
-  name: '❄️ 얼음 대포',
-  build: ({ t, y, rng, W }) => {
-    const rows = 5;
-    for (let row = 0; row < rows; row++) {
-      const cy = y + 50 + row * 70;
-      t.cannons.push({ y: cy, dir: row % 2 ? -1 : 1, period: 1.6 + rng() * 0.8, phase: rng() * 2 });
-      // 대포 줄 사이에 듬성듬성 핀
-      for (let x = 80 + rng() * 60; x < W - 60; x += 140 + rng() * 40) t.pegs.push({ x, y: cy + 35, r: 8, bounce: 0.5 });
-    }
-    return 50 + rows * 70 + 30;
-  },
-};
-
-const BUILDERS: Builder[] = [pegField, zigzag, funnel, spinners, lanes, bumpers, sliders, trapdoors, portals, conveyors, windmills, headwind, maze, iceCannons];
-
-/** 다른 구간에도 가끔 얼음 대포 하나를 덧붙임 (함정문·포털·얼음 대포 구간 제외) */
-const EXTRA_CANNON_CHANCE = 0.3;
-
-export function buildTrack(rng: Rng, size: MapSize, startRowsBottom: number): Track {
+export function buildTrack(rng: Rng, size: MapSize): Track {
   const cfg = TRACK_SIZE[size];
   const W = cfg.width;
   const t: Track = {
-    width: W, startY: startRowsBottom + 50, finishY: 0,
-    segments: [], pegs: [], spinners: [], sliders: [], gates: [], portals: [], zones: [], labels: [], cannons: [],
+    width: W, slope: SLOPE, hole: cfg.hole, corridors: [], finishY: 0,
+    segments: [], pegs: [], spinners: [], gates: [], portals: [], zones: [], cannons: [], labels: [],
   };
-  const order = shuffle([...BUILDERS], rng);
-  while (order.length < cfg.sections) {
-    // 부족하면 포털/함정문 같은 큰 변수는 중복되지 않게 나머지에서 뽑기
-    const pool = BUILDERS.filter((b) => b !== portals && b !== order[order.length - 1]);
-    order.push(pool[Math.floor(rng() * pool.length)]);
+  for (let k = 0; k < cfg.corridors; k++) {
+    const base = k === 0 ? TOP : t.corridors[k - 1].base + SLOPE * W + cfg.clearance;
+    t.corridors.push({ base, dir: k % 2 === 0 ? 1 : -1 });
   }
-  // 첫 구간은 포털이 아니게 (뒤로 보낼 곳이 없음)
-  if (order[0] === portals) [order[0], order[1]] = [order[1], order[0]];
+  const last = t.corridors.length - 1;
+  t.finishY = floorY(t, last, t.corridors[last].dir > 0 ? W : 0) + 90;
 
-  const pendingPortals: Ctx['pendingPortals'] = [];
-  let y = t.startY;
-  for (const b of order.slice(0, cfg.sections)) {
-    t.labels.push({ y, text: b.name });
-    const h = b.build({ t, y, rng, W, funnelScale: cfg.funnelScale, pendingPortals });
-    if (b !== trapdoors && b !== portals && b !== iceCannons && rng() < EXTRA_CANNON_CHANCE) {
-      t.cannons.push({ y: y + h * (0.3 + rng() * 0.4), dir: rng() < 0.5 ? 1 : -1, period: 2 + rng(), phase: rng() * 2 });
+  const pendingPortals: ModCtx['pendingPortals'] = [];
+  let pool = shuffle([...MODULES], rng);
+
+  for (let k = 0; k <= last; k++) {
+    const d = t.corridors[k].dir;
+    const X = (u: number) => (d > 0 ? u : W - u);
+    const usableEnd = W - cfg.hole - 90;
+
+    // 지름길 문 (마지막 통로 제외: 아래가 결승이라)
+    let shortcut: [number, number] | null = null;
+    if (k < last && rng() < SHORTCUT_CHANCE) {
+      const gw = cfg.hole * 0.85;
+      const us = W * (0.35 + rng() * 0.25);
+      shortcut = [us, us + gw];
     }
-    y += h;
-  }
-  t.finishY = y + 80;
 
-  // 포털 도착 지점: 장애물과 겹치지 않는 곳으로
-  for (const { p, dy } of pendingPortals) {
-    const ty = Math.max(t.startY + 20, Math.min(t.finishY - 250, p.y + dy));
-    let tx = W / 2;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const cx = 40 + rng() * (W - 80);
-      const cy = ty + (rng() - 0.5) * 120;
-      if (isClear(t, cx, cy, 30)) {
-        tx = cx;
-        p.ty = cy;
-        break;
+    // 모듈 2~3개를 통로를 따라 배치 (지름길 문 위는 피해서)
+    const count = 2 + (rng() < 0.5 ? 1 : 0);
+    const mods: { m: Module; u0: number }[] = [];
+    let u = ENTRY;
+    for (let i = 0; i < count; i++) {
+      if (pool.length === 0) pool = shuffle([...MODULES], rng);
+      const m = pool.pop()!;
+      const room = (usableEnd - u) / (count - i);
+      let u0 = u + Math.max(0, room - m.len) * rng();
+      if (shortcut && u0 < shortcut[1] + 30 && u0 + m.len > shortcut[0] - 30) u0 = shortcut[1] + 30;
+      if (u0 + m.len > usableEnd) break;
+      mods.push({ m, u0 });
+      u = u0 + m.len + 40;
+    }
+
+    // 바닥: 컨베이어·점프대·지름길 자리를 잘라가며 이어 붙임
+    const cuts: { a: number; b: number; kind: 'gap' | 'conveyor' | 'ramp' }[] = [];
+    if (shortcut) cuts.push({ a: shortcut[0], b: shortcut[1], kind: 'gap' });
+    for (const { m, u0 } of mods) if (m.floor) cuts.push({ a: u0 + 20, b: u0 + m.len - 20, kind: m.floor });
+    cuts.sort((p, q) => p.a - q.a);
+    const floorEnd = W - cfg.hole;
+    let from = 0;
+    const seg = (ua: number, ub: number) => {
+      const xa = X(ua);
+      const xb = X(ub);
+      t.segments.push({ x1: xa, y1: floorY(t, k, xa), x2: xb, y2: floorY(t, k, xb), kind: 'floor' });
+    };
+    for (const c of cuts) {
+      if (c.a > from) seg(from, c.a);
+      if (c.kind === 'conveyor') {
+        // 뒤로 실어 나르는 바닥 (빠르게 굴러오면 넘어감)
+        const xa = X(c.a);
+        const xb = X(c.b);
+        t.segments.push({ x1: xb, y1: floorY(t, k, xb), x2: xa, y2: floorY(t, k, xa), conveyor: 60 + rng() * 30, kind: 'floor' });
+      } else if (c.kind === 'ramp') {
+        seg(c.a, c.b);
+        // 바닥 위에 비스듬히 솟은 발판: 올라탄 원이 위로 튀어 오름
+        const xa = X(c.a + 20);
+        const xb = X(c.a + 90);
+        const top = floorY(t, k, xb) - 34;
+        t.segments.push({ x1: xa, y1: floorY(t, k, xa), x2: xb, y2: top, kind: 'ramp' });
+        t.segments.push({ x1: xb, y1: top, x2: xb, y2: floorY(t, k, xb), kind: 'ramp' });
+      } else {
+        const xa = X(c.a);
+        const xb = X(c.b);
+        t.gates.push({
+          x1: xa, y1: floorY(t, k, xa), x2: xb, y2: floorY(t, k, xb),
+          kind: 'floor', period: 2.6 + rng() * 1.2, openFor: 0.9 + rng() * 0.4, phase: rng() * 4,
+        });
+        t.labels.push({ x: (xa + xb) / 2, y: floorY(t, k, (xa + xb) / 2) - 70, text: '🎰 지름길' });
       }
-      p.ty = cy;
+      from = c.b;
     }
-    p.tx = tx;
+    if (from < floorEnd) seg(from, floorEnd);
+
+    for (const { m, u0 } of mods) {
+      m.build({ t, k, rng, X, u0, len: m.len, pendingPortals });
+      const x = X(u0 + m.len / 2);
+      t.labels.push({ x, y: ceilY(t, k, x) + 18, text: m.name });
+    }
+
+    // 출구 벽의 얼음 대포
+    if (rng() < CANNON_CHANCE) {
+      const x = X(W - cfg.hole - 14);
+      const vx = -d * 330;
+      t.cannons.push({ x, y: floorY(t, k, x) - 16, vx, vy: d * SLOPE * vx, period: 1.8 + rng() * 0.8, phase: rng() * 2 });
+    }
+  }
+
+  // 포털 도착 지점: 진행도 기준으로 앞/뒤, 장애물과 겹치지 않는 곳
+  const total = totalProgress(t);
+  for (const { p, delta } of pendingPortals) {
+    const here = progressAt(t, p.x, p.y);
+    let target = Math.max(ENTRY / 2, Math.min(total - W * 0.4, here + delta));
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const pt = pointAt(t, target);
+      if (isClear(t, pt.x, pt.y, 26)) break;
+      target += 37;
+    }
+    const pt = pointAt(t, target);
+    p.tx = pt.x;
+    p.ty = pt.y;
   }
   return t;
 }
@@ -363,8 +342,7 @@ function isClear(t: Track, x: number, y: number, r: number): boolean {
   for (const p of t.pegs) if (Math.hypot(p.x - x, p.y - y) < p.r + r) return false;
   for (const s of t.segments) if (distToSegment(x, y, s.x1, s.y1, s.x2, s.y2) < r + 4) return false;
   for (const s of t.spinners) if (Math.hypot(s.x - x, s.y - y) < s.half + r) return false;
-  for (const s of t.sliders) if (Math.abs(s.y - y) < r + 6) return false;
-  for (const g of t.gates) if (Math.abs(g.y - y) < r + 6) return false;
+  for (const g of t.gates) if (distToSegment(x, y, g.x1, g.y1, g.x2, g.y2) < r + 6) return false;
   for (const p of t.portals) if (Math.hypot(p.x - x, p.y - y) < p.r + r + 10) return false;
   return true;
 }
