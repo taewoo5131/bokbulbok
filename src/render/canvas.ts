@@ -1,4 +1,4 @@
-import { ARENA_R, CHARGE_TIME, ITEM_R, MAX_HP, type Game } from '../game/game';
+import { CHARGE_TIME, ITEM_R, MAX_HP, type Game } from '../game/game';
 import type { Ball, Decoy, Effect, ItemKind, MeteorStrike, Projectile } from '../game/types';
 import { WEAPONS, itemVisual } from '../game/weapons';
 
@@ -8,6 +8,10 @@ const MARGIN = 14;
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private size = 0;
+  /** 경기장 반지름 (맵 크기에 따라 다름) */
+  private baseR = 300;
+  /** 월드 1단위가 화면에서 몇 px인지 */
+  private screenScale = 1;
   private dpr = 1;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -30,7 +34,9 @@ export class Renderer {
   draw(game: Game): void {
     this.fit();
     const { ctx } = this;
-    const scale = (this.size * this.dpr) / (2 * (ARENA_R + MARGIN));
+    const scale = (this.size * this.dpr) / (2 * (game.baseR + MARGIN));
+    this.screenScale = scale / this.dpr;
+    this.baseR = game.baseR;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     // 화면 흔들림은 연출 전용이라 Math.random 사용 (경기 결과에 영향 없음)
@@ -100,11 +106,13 @@ export class Renderer {
     const { ctx } = this;
     const appear = Math.min(1, k * 8);
     const alpha = k > 0.75 ? (1 - k) / 0.25 : 1;
-    const y = -ARENA_R * 0.62;
+    const y = -this.baseR * 0.62;
+    const s = this.baseR / 300;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(0, y);
-    ctx.scale(0.6 + 0.4 * appear, 0.6 + 0.4 * appear);
+    // 큰 맵에서도 화면상 같은 크기로 보이게
+    ctx.scale((0.6 + 0.4 * appear) * s, (0.6 + 0.4 * appear) * s);
     ctx.font = '900 34px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -137,7 +145,7 @@ export class Renderer {
     const { ctx } = this;
     if (game.suddenDeath) {
       ctx.beginPath();
-      ctx.arc(0, 0, ARENA_R, 0, TAU);
+      ctx.arc(0, 0, game.baseR, 0, TAU);
       ctx.fillStyle = 'rgba(127, 29, 29, 0.35)';
       ctx.fill();
     }
@@ -228,20 +236,22 @@ export class Renderer {
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.stroke();
 
-    // 이름
-    const fontSize = Math.max(9, r * 0.62);
-    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    let label = name;
-    const maxW = r * 1.8;
-    while (label.length > 1 && ctx.measureText(label).width > maxW) label = label.slice(0, -1);
-    if (label !== name) label = label.slice(0, -1) + '…';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText(label, x, y + 1);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(label, x, y + 1);
+    // 이름 (원이 화면에서 너무 작으면 생략 — 큰 맵에서는 오른쪽 목록으로 확인)
+    if (r * this.screenScale >= 9) {
+      const fontSize = Math.max(9, r * 0.62);
+      ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      let label = name;
+      const maxW = r * 1.8;
+      while (label.length > 1 && ctx.measureText(label).width > maxW) label = label.slice(0, -1);
+      if (label !== name) label = label.slice(0, -1) + '…';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.strokeText(label, x, y + 1);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x, y + 1);
+    }
 
     // HP 바
     const w = Math.max(28, r * 2);
@@ -289,7 +299,7 @@ export class Renderer {
     ctx.globalAlpha = 1 - k;
     switch (e.kind) {
       case 'text':
-        ctx.font = '800 15px system-ui, sans-serif';
+        ctx.font = `800 ${15 * Math.sqrt(this.baseR / 300)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.lineWidth = 3;

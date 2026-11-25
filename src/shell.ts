@@ -3,7 +3,8 @@
  * 각 게임(배틀, 레이스 …)은 GameDef만 구현하면 이 화면을 그대로 씁니다.
  * 입력값은 localStorage를 공유하므로 게임을 바꿔도 그대로 유지됩니다.
  */
-import { BALL_COLORS } from './game/colors';
+import { colorFor } from './game/colors';
+import { MAX_ENTRANTS, SIZE_INFO, sizeFor } from './game/size';
 import { randomSeed } from './game/rng';
 import type { Mode } from './game/types';
 
@@ -48,7 +49,7 @@ export interface GameDef<G extends PlayableGame> {
 }
 
 const MIN_ITEMS = 2;
-const MAX_ITEMS = 16;
+const MAX_ITEMS = MAX_ENTRANTS;
 const MAX_NAME_LEN = 12;
 const STEP = 1 / 60;
 const STORAGE_KEY = 'circle-battle:last';
@@ -117,7 +118,7 @@ export function runShell<G extends PlayableGame>(def: GameDef<G>): void {
         const li = document.createElement('li');
         const dot = document.createElement('span');
         dot.className = 'dot';
-        dot.style.background = BALL_COLORS[i % BALL_COLORS.length];
+        dot.style.background = colorFor(i);
         const label = document.createElement('span');
         label.textContent = name;
         const del = document.createElement('button');
@@ -134,8 +135,11 @@ export function runShell<G extends PlayableGame>(def: GameDef<G>): void {
     );
     const n = items.length;
     el.start.disabled = n < MIN_ITEMS;
+    const size = sizeFor(n);
     el.hint.textContent =
-      n < MIN_ITEMS ? `항목을 ${MIN_ITEMS}개 이상 입력하세요 (최대 ${MAX_ITEMS}개)` : `${n} / ${MAX_ITEMS}개`;
+      n < MIN_ITEMS
+        ? `항목을 ${MIN_ITEMS}개 이상 입력하세요 (최대 ${MAX_ITEMS}개)`
+        : `${n} / ${MAX_ITEMS}개 · 맵 ${SIZE_INFO[size].label} (${SIZE_INFO[size].max}명까지)`;
     saveLast();
   }
 

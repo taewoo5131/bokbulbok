@@ -1,18 +1,27 @@
 import { collideArena, collideBalls, rayToCircleEdge } from './physics';
-import { BALL_COLORS } from './colors';
+import { colorFor } from './colors';
+import { sizeFor, type MapSize } from './size';
 import { mulberry32, type Rng } from './rng';
 import type { Ball, Decoy, Effect, GameResult, Item, ItemKind, MeteorStrike, Mode, Projectile, WeaponId } from './types';
 import { DECOY, HEAL, METEOR, WEAPONS, pickWeapon } from './weapons';
 
-export const ARENA_R = 300;
 export const MAX_HP = 10;
 export const CHARGE_TIME = 1;
 export const ITEM_R = 13;
-export const SUDDEN_AT = 30;
-const SHRINK_DURATION = 25;
 const MIN_ARENA_RATIO = 0.38;
-const TIME_LIMIT = 120;
-const BASE_SPEED = 110;
+
+/**
+ * 맵 크기별 설정. 인원이 많을수록 경기장을 넓히고(면적 ∝ 인원),
+ * 아이템을 더 많이·자주 뿌리고, 서든데스를 늦춰서 경기 시간이 비슷하게 유지되도록 함.
+ */
+const BATTLE_SIZE: Record<MapSize, {
+  arena: number; speed: number; suddenAt: number; shrink: number;
+  maxItems: number; spawnRate: number; timeLimit: number;
+}> = {
+  S: { arena: 300, speed: 110, suddenAt: 30, shrink: 25, maxItems: 6, spawnRate: 1, timeLimit: 120 },
+  M: { arena: 530, speed: 135, suddenAt: 30, shrink: 30, maxItems: 16, spawnRate: 2.5, timeLimit: 150 },
+  L: { arena: 750, speed: 160, suddenAt: 35, shrink: 35, maxItems: 30, spawnRate: 4.5, timeLimit: 180 },
+};
 const TAU = Math.PI * 2;
 
 
@@ -30,7 +39,11 @@ export class Game {
   /** 화면 흔들림 세기 (렌더 전용, 시간이 지나면 0으로) */
   shake = 0;
   time = 0;
-  arenaR = ARENA_R;
+  readonly size: MapSize;
+  /** 처음 경기장 반지름 */
+  readonly baseR: number;
+  arenaR: number;
+  private cfg: (typeof BATTLE_SIZE)[MapSize];
   result: GameResult | null = null;
 
   private rng: Rng;
@@ -47,8 +60,12 @@ export class Game {
   ) {
     this.rng = mulberry32(seed);
     const n = names.length;
+    this.size = sizeFor(n);
+    this.cfg = BATTLE_SIZE[this.size];
+    this.baseR = this.cfg.arena;
+    this.arenaR = this.baseR;
     // 경기장이 최소로 줄어도 원들이 다 들어가도록 반지름 결정
-    const minArena = ARENA_R * MIN_ARENA_RATIO;
+    const minArena = this.baseR * MIN_ARENA_RATIO;
     const r = Math.max(12, Math.min(30, minArena * Math.sqrt(0.5 / n)));
 
     names.forEach((name, id) => {
@@ -56,15 +73,15 @@ export class Game {
       let y = 0;
       for (let attempt = 0; attempt < 200; attempt++) {
         const ang = this.rng() * TAU;
-        const d = Math.sqrt(this.rng()) * (ARENA_R * 0.8 - r);
+        const d = Math.sqrt(this.rng()) * (this.baseR * 0.8 - r);
         x = Math.cos(ang) * d;
         y = Math.sin(ang) * d;
         if (this.balls.every((b) => Math.hypot(b.x - x, b.y - y) > b.r + r + 6)) break;
       }
       const va = this.rng() * TAU;
       this.balls.push({
-        id, name, color: BALL_COLORS[id % BALL_COLORS.length], x, y,
-        vx: Math.cos(va) * BASE_SPEED, vy: Math.sin(va) * BASE_SPEED,
+        id, name, color: colorFor(id), x, y,
+        vx: Math.cos(va) * this.cfg.speed, vy: Math.sin(va) * this.cfg.speed,
         r, hp: MAX_HP, alive: true, weapon: null, charge: 0, flash: 0, wallCd: 0,
       });
     });
@@ -75,7 +92,11 @@ export class Game {
   }
 
   get suddenDeath(): boolean {
-    return this.time >= SUDDEN_AT;
+    return this.time >= this.cfg.suddenAt;
+  }
+
+  get suddenAt(): number {
+    return this.cfg.suddenAt;
   }
 
   get alive(): Ball[] {
@@ -90,8 +111,8 @@ export class Game {
 
     this.time += dt;
     if (this.suddenDeath) {
-      const k = Math.min(1, (this.time - SUDDEN_AT) / SHRINK_DURATION);
-      this.arenaR = ARENA_R * (1 - (1 - MIN_ARENA_RATIO) * k);
+      const k = Math.min(1, (this.time - this.cfg.suddenAt) / this.cfg.shrink);
+      this.arenaR = this.baseR * (1 - (1 - MIN_ARENA_RATIO) * k);
     }
 
     this.updateSpawns(dt);
@@ -111,9 +132,9 @@ export class Game {
 
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = (this.suddenDeath ? 0.4 : 0.6) + this.rng() * 0.8;
+    this.spawnTimer = ((this.suddenDeath ? 0.4 : 0.6) + this.rng() * 0.8) / this.cfg.spawnRate;
 
-    const maxItems = Math.min(6, 2 + Math.ceil(this.alive.length / 3));
+    const maxItems = Math.min(this.cfg.maxItems, 2 + Math.ceil(this.alive.length / 3));
     if (this.items.length >= maxItems) return;
 
     const ang = this.rng() * TAU;
@@ -153,10 +174,10 @@ export class Game {
       const s = Math.hypot(b.vx, b.vy);
       if (s < 1) {
         const a = this.rng() * TAU;
-        b.vx = Math.cos(a) * BASE_SPEED;
-        b.vy = Math.sin(a) * BASE_SPEED;
+        b.vx = Math.cos(a) * this.cfg.speed;
+        b.vy = Math.sin(a) * this.cfg.speed;
       } else {
-        const ns = s + (BASE_SPEED - s) * Math.min(1, dt * 2);
+        const ns = s + (this.cfg.speed - s) * Math.min(1, dt * 2);
         b.vx *= ns / s;
         b.vy *= ns / s;
       }
@@ -244,7 +265,7 @@ export class Game {
       this.decoys.push({
         id: this.decoySeq++, owner: b.id,
         x: b.x + Math.cos(a) * b.r * 0.5, y: b.y + Math.sin(a) * b.r * 0.5,
-        vx: Math.cos(a) * BASE_SPEED, vy: Math.sin(a) * BASE_SPEED,
+        vx: Math.cos(a) * this.cfg.speed, vy: Math.sin(a) * this.cfg.speed,
         r: b.r, life: DECOY.duration,
       });
     }
@@ -457,7 +478,7 @@ export class Game {
   private checkEnd(): void {
     const aliveCount = this.alive.length;
     const done =
-      this.time >= TIME_LIMIT ||
+      this.time >= this.cfg.timeLimit ||
       (this.mode === 'winner' && aliveCount <= 1) ||
       (this.mode === 'loser' && this.eliminated.length > 0);
     if (!done) return;

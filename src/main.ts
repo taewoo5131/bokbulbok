@@ -1,6 +1,7 @@
 /** ⚔️ 배틀 페이지 진입점 */
 import './style.css';
-import { Game, MAX_HP, SUDDEN_AT } from './game/game';
+import { Game, MAX_HP } from './game/game';
+import { SIZE_INFO } from './game/size';
 import { DECOY, HEAL, WEAPONS, WEAPON_LIST } from './game/weapons';
 import { Renderer } from './render/canvas';
 import { runShell } from './shell';
@@ -16,8 +17,8 @@ runShell<Game>({
   entrants: (game) => game.balls,
   hud: (game) => {
     const t = Math.floor(game.time);
-    const sd = game.suddenDeath ? ' · <span class="sd">🔥 서든데스</span>' : ` · 서든데스까지 ${SUDDEN_AT - t}s`;
-    return `⏱ ${t}s · 생존 ${game.alive.length}/${game.balls.length}${sd}`;
+    const sd = game.suddenDeath ? ' · <span class="sd">🔥 서든데스</span>' : ` · 서든데스까지 ${game.suddenAt - t}s`;
+    return `⏱ ${t}s · 생존 ${game.alive.length}/${game.balls.length} · 맵 ${SIZE_INFO[game.size].label}${sd}`;
   },
   roster: (game) =>
     game.balls.map((b) => {

@@ -1,6 +1,7 @@
 /** 🏁 레이스 페이지 진입점 */
 import './style.css';
 import { Race } from './race/race';
+import { SIZE_INFO } from './game/size';
 import { RaceRenderer } from './render/race-canvas';
 import { runShell } from './shell';
 
@@ -17,7 +18,7 @@ runShell<Race>({
     const t = Math.floor(race.time);
     const n = race.balls.length;
     const goal = race.mode === 'winner' ? '먼저 도착하면 1등' : `꼴등 결정까지 ${Math.max(0, n - 1 - race.arrived)}명`;
-    return `⏱ ${t}s · 도착 ${race.arrived}/${n} · ${goal}`;
+    return `⏱ ${t}s · 도착 ${race.arrived}/${n} · 맵 ${SIZE_INFO[race.size].label} · ${goal}`;
   },
   roster: (race) => {
     const rank = new Map(race.standings().map((b, i) => [b.id, i + 1]));
