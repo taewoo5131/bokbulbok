@@ -179,9 +179,20 @@ export class Game {
 
   // ───────────────────────── 무기 발사 ─────────────────────────
 
+  /**
+   * 발사 순간 살아있는 상대 중 한 명을 무작위로 골라 그 좌표를 향한 각도.
+   * 유도가 아니라 이 순간의 위치로 쏘기 때문에 상대가 움직이면 빗나갈 수 있음.
+   */
+  private aimAngle(b: Ball): number {
+    const targets = this.alive.filter((o) => o.id !== b.id);
+    if (targets.length === 0) return this.rng() * TAU;
+    const t = targets[Math.floor(this.rng() * targets.length)];
+    return Math.atan2(t.y - b.y, t.x - b.x);
+  }
+
   private fire(b: Ball, weapon: WeaponId): void {
     const def = WEAPONS[weapon];
-    const angle = this.rng() * TAU;
+    const angle = this.aimAngle(b);
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
     const spawn = (ang: number, speed: number, r: number, life: number) => {
