@@ -175,6 +175,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .result-name { margin: 6px 0 14px; font-size: 34px; font-weight: 900; word-break: keep-all; }
 .ranking { text-align: left; margin: 0 0 16px; padding-left: 26px; font-size: 14px; color: var(--muted); max-height: 200px; overflow: auto; }
 .ranking li.picked { color: var(--text); font-weight: 800; }
+.ranking .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .result-actions .primary { grid-column: span 2; padding: 12px; }
 

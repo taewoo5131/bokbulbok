@@ -56,14 +56,19 @@ const renderer = new Renderer(el.canvas);
 
 // ───────────────────────── 입력 화면 ─────────────────────────
 
+/** "태우*3" → 태우 3개. 곱하기 기호는 * 또는 × (영문 x는 "box2" 같은 이름과 헷갈려서 제외) */
+const REPEAT_RE = /^(.+?)\s*[*×]\s*(\d+)$/;
+
 function addItems(raw: string): void {
-  const names = raw
-    .split(',')
-    .map((s) => s.trim().slice(0, MAX_NAME_LEN))
-    .filter(Boolean);
-  for (const name of names) {
-    if (items.length >= MAX_ITEMS) break;
-    if (!items.includes(name)) items.push(name);
+  for (const token of raw.split(',')) {
+    const t = token.trim();
+    if (!t) continue;
+    const m = t.match(REPEAT_RE);
+    const name = (m ? m[1] : t).trim().slice(0, MAX_NAME_LEN);
+    const count = m ? Number(m[2]) : 1;
+    if (!name) continue;
+    // 같은 이름도 여러 개 허용 (색으로 구분)
+    for (let i = 0; i < count && items.length < MAX_ITEMS; i++) items.push(name);
   }
   renderChips();
 }
@@ -261,7 +266,10 @@ function showResult(): void {
   el.resultRanking.replaceChildren(
     ...ranking.map((b) => {
       const li = document.createElement('li');
-      li.textContent = b.name;
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = b.color;
+      li.append(dot, b.name);
       if (b === picked) li.className = 'picked';
       return li;
     }),
