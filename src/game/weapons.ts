@@ -1,5 +1,5 @@
 import type { Rng } from './rng';
-import type { WeaponId } from './types';
+import type { ItemKind, WeaponId } from './types';
 
 export interface WeaponDef {
   id: WeaponId;
@@ -23,6 +23,23 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 };
 
 export const WEAPON_LIST = Object.values(WEAPONS);
+
+/** 체력 회복 아이템: 닿는 즉시 회복 (무기를 들고 있어도 습득, 체력이 가득 찬 원은 지나침) */
+export const HEAL = {
+  name: '회복',
+  emoji: '❤️',
+  color: '#f43f5e',
+  amount: 3,
+  /** 무기 대신 회복 아이템이 나올 확률 */
+  chance: 0.15,
+  /** 경기장에 동시에 존재할 수 있는 최대 개수 */
+  maxOnField: 1,
+  desc: '닿으면 즉시 체력 3 회복 (최대 10)',
+};
+
+export function itemVisual(kind: ItemKind): { emoji: string; color: string; name: string } {
+  return kind === 'heal' ? HEAL : WEAPONS[kind];
+}
 
 const TOTAL_WEIGHT = WEAPON_LIST.reduce((s, w) => s + w.weight, 0);
 

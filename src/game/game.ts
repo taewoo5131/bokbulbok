@@ -1,7 +1,7 @@
 import { collideArena, collideBalls, rayToCircleEdge } from './physics';
 import { mulberry32, type Rng } from './rng';
 import type { Ball, Effect, GameResult, Item, Mode, Projectile, WeaponId } from './types';
-import { WEAPONS, pickWeapon } from './weapons';
+import { HEAL, WEAPONS, pickWeapon } from './weapons';
 
 export const ARENA_R = 300;
 export const MAX_HP = 10;
@@ -112,11 +112,13 @@ export class Game {
 
     const ang = this.rng() * TAU;
     const d = Math.sqrt(this.rng()) * (this.arenaR - ITEM_R - 12);
+    const healsOnField = this.items.filter((it) => it.kind === 'heal').length;
+    const heal = this.rng() < HEAL.chance && healsOnField < HEAL.maxOnField;
     this.items.push({
       id: this.itemSeq++,
       x: Math.cos(ang) * d,
       y: Math.sin(ang) * d,
-      weapon: pickWeapon(this.rng),
+      kind: heal ? 'heal' : pickWeapon(this.rng),
       age: 0,
     });
   }
@@ -157,7 +159,21 @@ export class Game {
       }
     }
 
+    const touching = (b: Ball, it: Item) => Math.hypot(it.x - b.x, it.y - b.y) < b.r + ITEM_R;
+
     for (const b of alive) {
+      // 회복: 무기 소지 여부와 상관없이 즉시 적용, 체력이 가득 차 있으면 줍지 않음
+      if (b.hp < MAX_HP) {
+        const hi = this.items.findIndex((it) => it.kind === 'heal' && touching(b, it));
+        if (hi >= 0) {
+          this.items.splice(hi, 1);
+          const gained = Math.min(HEAL.amount, MAX_HP - b.hp);
+          b.hp += gained;
+          this.addText(b.x, b.y - b.r - 18, `+${gained}`, '#4ade80');
+          this.effects.push({ kind: 'ring', x: b.x, y: b.y, radius: b.r * 1.8, color: '#4ade80', t: 0, life: 0.4 });
+        }
+      }
+
       if (b.weapon) {
         b.charge += dt;
         if (b.charge >= CHARGE_TIME) {
@@ -167,12 +183,13 @@ export class Game {
         }
         continue;
       }
-      const idx = this.items.findIndex((it) => Math.hypot(it.x - b.x, it.y - b.y) < b.r + ITEM_R);
-      if (idx >= 0) {
-        const [it] = this.items.splice(idx, 1);
-        b.weapon = it.weapon;
+      const wi = this.items.findIndex((it) => it.kind !== 'heal' && touching(b, it));
+      if (wi >= 0) {
+        const [it] = this.items.splice(wi, 1);
+        if (it.kind === 'heal') continue;
+        b.weapon = it.kind;
         b.charge = 0;
-        this.addText(b.x, b.y - b.r - 18, WEAPONS[it.weapon].name, WEAPONS[it.weapon].color);
+        this.addText(b.x, b.y - b.r - 18, WEAPONS[it.kind].name, WEAPONS[it.kind].color);
       }
     }
   }

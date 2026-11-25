@@ -2,7 +2,7 @@ import './style.css';
 import { BALL_COLORS, Game, MAX_HP, SUDDEN_AT } from './game/game';
 import { randomSeed } from './game/rng';
 import type { Mode } from './game/types';
-import { WEAPONS, WEAPON_LIST } from './game/weapons';
+import { HEAL, WEAPONS, WEAPON_LIST } from './game/weapons';
 import { Renderer } from './render/canvas';
 
 const MIN_ITEMS = 2;
@@ -153,6 +153,9 @@ el.weaponList.replaceChildren(
     const li = document.createElement('li');
     li.innerHTML = `${w.emoji} <b>${w.name}</b> · 피해 ${w.damage} — ${w.desc}`;
     return li;
+  }),
+  Object.assign(document.createElement('li'), {
+    innerHTML: `${HEAL.emoji} <b>${HEAL.name}</b> · +${HEAL.amount} — ${HEAL.desc}`,
   }),
 );
 

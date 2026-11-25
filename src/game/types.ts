@@ -21,11 +21,13 @@ export interface Ball {
   wallCd: number;
 }
 
+export type ItemKind = WeaponId | 'heal';
+
 export interface Item {
   id: number;
   x: number;
   y: number;
-  weapon: WeaponId;
+  kind: ItemKind;
   age: number;
 }
 

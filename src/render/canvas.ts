@@ -1,6 +1,6 @@
 import { ARENA_R, CHARGE_TIME, ITEM_R, MAX_HP, type Game } from '../game/game';
-import type { Ball, Effect, Projectile } from '../game/types';
-import { WEAPONS } from '../game/weapons';
+import type { Ball, Effect, ItemKind, Projectile } from '../game/types';
+import { WEAPONS, itemVisual } from '../game/weapons';
 
 const TAU = Math.PI * 2;
 const MARGIN = 14;
@@ -36,7 +36,7 @@ export class Renderer {
     ctx.setTransform(scale, 0, 0, scale, this.canvas.width / 2, this.canvas.height / 2);
 
     this.drawArena(game);
-    for (const it of game.items) this.drawItem(it.x, it.y, it.age, it.weapon);
+    for (const it of game.items) this.drawItem(it.x, it.y, it.age, it.kind);
     for (const p of game.projectiles) this.drawProjectile(p);
     for (const b of game.balls) if (b.alive) this.drawBall(b, game);
     for (const e of game.effects) this.drawEffect(e);
@@ -60,9 +60,9 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawItem(x: number, y: number, age: number, weapon: keyof typeof WEAPONS): void {
+  private drawItem(x: number, y: number, age: number, kind: ItemKind): void {
     const { ctx } = this;
-    const def = WEAPONS[weapon];
+    const def = itemVisual(kind);
     const pop = Math.min(1, age * 4);
     const bob = Math.sin(age * 4) * 2;
     ctx.save();
