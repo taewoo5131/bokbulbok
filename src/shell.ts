@@ -52,7 +52,9 @@ const MIN_ITEMS = 2;
 const MAX_ITEMS = MAX_ENTRANTS;
 const MAX_NAME_LEN = 12;
 const STEP = 1 / 60;
-const STORAGE_KEY = 'circle-battle:last';
+const STORAGE_KEY = 'bokbulbok:last';
+/** 프로젝트 이름을 바꾸기 전에 쓰던 키 (기존 방문자 입력값을 옮겨 오기 위해) */
+const OLD_STORAGE_KEY = 'circle-battle:last';
 
 const PRESETS: Record<string, string[]> = {
   lunch: ['돈까스', '국밥', '냉면', '짜장면', '김치찌개', '초밥'],
@@ -162,7 +164,15 @@ export function runShell<G extends PlayableGame>(def: GameDef<G>): void {
 
   function loadLast(): void {
     try {
-      const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
+      let raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) {
+        raw = localStorage.getItem(OLD_STORAGE_KEY);
+        if (raw !== null) {
+          localStorage.setItem(STORAGE_KEY, raw);
+          localStorage.removeItem(OLD_STORAGE_KEY);
+        }
+      }
+      const data = JSON.parse(raw ?? 'null');
       if (Array.isArray(data?.items)) items = data.items.filter((s: unknown) => typeof s === 'string').slice(0, MAX_ITEMS);
       if (data?.mode === 'winner' || data?.mode === 'loser') mode = data.mode;
     } catch {
