@@ -51,3 +51,11 @@ npm run build    # dist/ 에 정적 파일 생성
 
 ## 배포 (Cloudflare)
 - Framework preset: **Vite** / Build command: `npm run build` / Output: `dist`
+
+## 공유 썸네일 (카카오톡·SNS 미리보기)
+- 각 페이지 `<head>`의 `og:image`가 `public/og-battle.png`, `public/og-race.png`(1200×630)를 가리킴.
+- 다시 만들 때: `npm run dev` 실행 후 아래 명령 (`tools/og.html`은 배포에 포함되지 않는 제작용 페이지)
+  ```bash
+  for g in battle race; do "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1200,630 --virtual-time-budget=8000 --screenshot="$PWD/public/og-$g.png" "http://localhost:5173/tools/og.html?game=$g"; done
+  ```
+- 카카오톡은 미리보기를 캐시하므로, 바꾼 뒤에는 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing)에서 주소를 넣고 캐시 초기화.

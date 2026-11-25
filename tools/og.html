@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 공유 썸네일(og:image) 제작용 개발 전용 페이지. 배포 빌드에는 포함되지 않음. -->
+    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: #0f172a; }
+      .og { display: flex; align-items: center; width: 1200px; height: 630px; box-sizing: border-box; padding: 0 0 0 64px; gap: 40px; }
+      .og-text { flex: 0 0 470px; color: #e2e8f0; }
+      .og-text .site { color: #94a3b8; font-size: 26px; font-weight: 700; margin: 0 0 14px; }
+      .og-text h1 { font-size: 76px; line-height: 1.1; margin: 0 0 20px; letter-spacing: -1px; }
+      .og-text .sub { font-size: 30px; line-height: 1.45; color: #cbd5e1; margin: 0 0 30px; word-break: keep-all; }
+      .og-tags { display: flex; flex-wrap: wrap; gap: 10px; }
+      .og-tags span { font-size: 22px; font-weight: 700; padding: 8px 16px; border-radius: 999px; background: #1e293b; border: 1px solid #334155; }
+      .og-tags span.hl { background: #2a2213; border-color: #f59e0b; color: #fcd34d; }
+      .og-stage { flex: 1; height: 630px; display: flex; align-items: center; justify-content: center; }
+      #og-canvas { display: block; }
+      .domain { position: absolute; left: 64px; bottom: 36px; color: #64748b; font-size: 22px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div class="og">
+      <div class="og-text">
+        <p class="site">⚔️ 원 배틀 룰렛</p>
+        <h1 id="og-title"></h1>
+        <p class="sub" id="og-sub"></p>
+        <div class="og-tags" id="og-tags"></div>
+      </div>
+      <div class="og-stage"><canvas id="og-canvas"></canvas></div>
+    </div>
+    <div class="domain">bokbulbok.org</div>
+    <script type="module" src="/src/og.ts"></script>
+  </body>
+</html>
