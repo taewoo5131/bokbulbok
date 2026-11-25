@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>원 배틀 룰렛 – 원들이 싸워서 정해주는 랜덤 뽑기</title>
+    <meta name="description" content="점심 메뉴, 벌칙, 순서 정하기를 원들의 결투로! 항목을 입력하면 원들이 무기를 주워 싸우고 1등 또는 꼴등을 뽑아줍니다." />
+    <meta property="og:title" content="원 배틀 룰렛" />
+    <meta property="og:description" content="항목을 넣으면 원들이 싸워서 1등/꼴등을 정해줍니다." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>" />
+  </head>
+  <body>
+    <main id="app">
+      <!-- 입력 화면 -->
+      <section id="screen-input" class="screen">
+        <header class="hero">
+          <h1>⚔️ 원 배틀 룰렛</h1>
+          <p>후보를 넣으면 원들이 무기를 주워 싸워서 정해줍니다</p>
+        </header>
+
+        <div class="card">
+          <div class="mode" role="radiogroup" aria-label="모드">
+            <button type="button" data-mode="winner" class="active">🏆 1등 뽑기</button>
+            <button type="button" data-mode="loser">💀 꼴등 뽑기</button>
+          </div>
+
+          <form id="add-form" class="add">
+            <input id="item-input" autocomplete="off" maxlength="40" placeholder="항목 입력 후 Enter (쉼표로 여러 개)" />
+            <button type="submit">추가</button>
+          </form>
+
+          <ul id="chips" class="chips"></ul>
+
+          <div class="presets">
+            <span>프리셋</span>
+            <button type="button" data-preset="lunch">🍱 점심 메뉴</button>
+            <button type="button" data-preset="dinner">🍖 저녁 메뉴</button>
+            <button type="button" data-preset="numbers">🔢 1~6</button>
+            <button type="button" id="clear-btn">지우기</button>
+          </div>
+
+          <p id="hint" class="hint"></p>
+          <button id="start-btn" class="primary" type="button">결투 시작!</button>
+        </div>
+
+        <section class="howto">
+          <h2>게임 방법</h2>
+          <ol>
+            <li>후보를 2~16개 입력하고 <b>1등 뽑기</b> 또는 <b>꼴등 뽑기</b>를 고릅니다.</li>
+            <li>모든 원은 체력 10으로 시작해 경기장 안을 돌아다닙니다.</li>
+            <li>경기장에 무작위로 무기가 나타나고, 주운 원은 <b>1초 뒤 무작위 방향</b>으로 사용합니다.</li>
+            <li>30초가 지나면 서든데스! 경기장이 줄어들고 벽에 닿으면 피해를 입습니다.</li>
+            <li>1등 뽑기는 마지막 생존자, 꼴등 뽑기는 가장 먼저 탈락한 원이 뽑힙니다.</li>
+          </ol>
+          <h2>무기 종류</h2>
+          <ul id="weapon-list" class="weapons"></ul>
+        </section>
+      </section>
+
+      <!-- 경기 화면 -->
+      <section id="screen-game" class="screen hidden">
+        <div class="topbar">
+          <button id="back-btn" type="button">← 항목 수정</button>
+          <span id="hud" class="hud"></span>
+          <button id="speed-btn" type="button">1x</button>
+        </div>
+        <div class="arena-layout">
+          <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+          <ul id="roster" class="roster"></ul>
+        </div>
+
+        <div id="result" class="result hidden">
+          <div class="result-card">
+            <p id="result-label" class="result-label"></p>
+            <p id="result-name" class="result-name"></p>
+            <ol id="result-ranking" class="ranking"></ol>
+            <div class="result-actions">
+              <button id="again-btn" class="primary" type="button">🔁 새 경기</button>
+              <button id="replay-btn" type="button">⏪ 같은 경기 다시보기</button>
+              <button id="share-btn" type="button">🔗 결과 링크 복사</button>
+              <button id="edit-btn" type="button">✏️ 항목 수정</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">© 원 배틀 룰렛</footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
